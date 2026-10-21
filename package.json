@@ -1,0 +1,18 @@
+{
+  "name": "hwaseong-pyeongtaek-cost",
+  "version": "0.1.0",
+  "description": "ERP 기초 파일로 화성·평택 매출을 구분하고 로트·품목별 재료원가(원료·자재)를 계산합니다.",
+  "private": true,
+  "license": "UNLICENSED",
+  "main": "src/engine.js",
+  "bin": { "hp-cost": "cli/hp-cost.js" },
+  "scripts": {
+    "test": "node --test",
+    "start": "node cli/hp-cost.js",
+    "sample": "node fixtures/sample.js sample/가상_기초파일.xlsx"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  }
+}

@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>화성·평택 매출원가</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* 레이아웃: 한 줄 업로드 바 → 두 공장 매출 분할 막대 → 요약표 → 탭 상세. 평택=청록, 화성=황토 */
+:root{
+  --bg:#f5f6f4; --surface:#ffffff; --line:#dde1dc; --fg:#1d2420; --muted:#66706a;
+  --pt:#17656b; --pt-soft:#dcecec; --hs:#a8691c; --hs-soft:#f3e6d3;
+  --warn:#b4471f; --warn-soft:#f7e3da; --ok:#2f7a4b; --focus:#17656b;
+  --f-body:"IBM Plex Sans KR",-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-num:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141917; --surface:#1c2320; --line:#2f3934; --fg:#e6ece8; --muted:#97a39c;
+  --pt:#5fb7bc; --pt-soft:#1d3537; --hs:#e0a356; --hs-soft:#3a2d1b;
+  --warn:#ee8a62; --warn-soft:#3b2219; --ok:#6cc08b; --focus:#5fb7bc; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141917; --surface:#1c2320; --line:#2f3934; --fg:#e6ece8; --muted:#97a39c;
+  --pt:#5fb7bc; --pt-soft:#1d3537; --hs:#e0a356; --hs-soft:#3a2d1b;
+  --warn:#ee8a62; --warn-soft:#3b2219; --ok:#6cc08b; --focus:#5fb7bc; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.55}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:20px}
+header h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+header p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* 업로드 바 */
+.bar{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
+.drop{flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:12px;border:1.5px dashed var(--line);border-radius:8px;padding:10px 12px;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--pt);background:var(--pt-soft)}
+.fname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.fname b{color:var(--fg);font-weight:600}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:7px 14px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--pt);border-color:var(--pt);color:#fff}
+.btn.primary:hover{filter:brightness(1.08)}
+:root[data-theme="dark"] .btn.primary{color:#0f1514}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn.primary{color:#0f1514}}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.opts{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.opts label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
+.opts input{width:76px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:5px 8px;text-align:right}
+.status{font-size:13px;color:var(--muted)}
+.status.err{color:var(--warn)}
+
+/* 빈 상태 */
+.empty{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:28px 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:20px}
+.empty h2{grid-column:1/-1;margin:0;font-size:16px}
+.step{display:flex;flex-direction:column;gap:4px}
+.step .k{font-size:12px;letter-spacing:.06em;color:var(--pt);font-weight:600}
+.step p{margin:0;color:var(--muted);font-size:13px}
+.lock{grid-column:1/-1;font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:12px;margin:0}
+
+/* 분할 막대 */
+.split{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:14px}
+.split-top{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:baseline}
+.total .lbl{font-size:12px;color:var(--muted);letter-spacing:.04em}
+.total .v{font-size:26px;font-weight:600}
+.legend{display:flex;gap:20px;flex-wrap:wrap}
+.lg{display:flex;flex-direction:column;gap:2px}
+.lg .lbl{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+.lg .v{font-size:17px;font-weight:600}
+.lg .s{font-size:12px;color:var(--muted)}
+.track{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--line)}
+.track>div{height:100%}
+
+/* 표 */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.card h3{margin:0;font-size:14px;padding:14px 16px 0}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{font-weight:500;color:var(--muted);font-size:12px;background:var(--surface);position:sticky;top:0}
+td.t,th.t{text-align:left}
+td.name{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+tbody tr:last-child td{border-bottom:0}
+tr.sum td{font-weight:600;border-top:1.5px solid var(--fg)}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;font-weight:600}
+.tag.pt{background:var(--pt-soft);color:var(--pt)}
+.tag.hs{background:var(--hs-soft);color:var(--hs)}
+.flag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:4px;background:var(--warn-soft);color:var(--warn);white-space:nowrap}
+.muted{color:var(--muted)}
+
+.tabs{display:flex;gap:4px;padding:12px 12px 0;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{border:0;background:none;padding:8px 12px;border-bottom:2px solid transparent;cursor:pointer;color:var(--muted);font-weight:500;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--fg)}
+.tab .c{font-family:var(--f-num);font-size:11px;margin-left:4px;color:var(--muted)}
+.pane{max-height:560px;overflow:auto}
+.note{font-size:12px;color:var(--muted);margin:0;padding:10px 16px 14px;border-top:1px solid var(--line)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>화성·평택 매출원가</h1>
+    <p>기초 파일을 올리면 당월 출하를 화성·평택으로 나누고 품목별 재료원가(원료·자재)를 계산합니다.</p>
+  </header>
+
+  <section class="bar" aria-label="파일과 설정">
+    <div class="drop" id="drop">
+      <button class="btn primary" id="pick" type="button">기초 파일 선택</button>
+      <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
+      <span class="fname" id="fname">엑셀 파일을 여기에 끌어다 놓아도 됩니다</span>
+    </div>
+    <div class="opts">
+      <label for="month">당월 <input id="month" type="number" min="1" max="12" class="num" disabled></label>
+      <label for="fx">환율 <input id="fx" type="number" step="1" class="num" disabled></label>
+      <button class="btn" id="dl" type="button" disabled>엑셀 다운로드</button>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="empty" id="empty">
+    <h2>필요한 파일</h2>
+    <div class="step"><span class="k">원천 시트</span><p>발주 현황 · 작업지시현황 · 출하대장 · 제품 단가 대장(월별) · 자재투입현황. 시트 이름에 이 단어만 들어 있으면 됩니다.</p></div>
+    <div class="step"><span class="k">평택 로트목록</span><p>지금 쓰는 「당월 생산」 시트(제공자료 칸)를 그대로 읽습니다. 「로트목록」 표 형식도 됩니다.</p></div>
+    <div class="step"><span class="k">결과</span><p>평택 = 로트목록 출하 × 평택비율, 화성 = 나머지 출하. 요약·평택 로트별·화성 품목별·확인사항을 엑셀로 내려받습니다.</p></div>
+    <p class="lock">파일은 이 브라우저 안에서만 읽고 계산합니다. 서버로 전송하거나 저장하지 않습니다.</p>
+  </section>
+
+  <div id="result" hidden>
+    <section class="split" aria-label="매출 구분">
+      <div class="split-top">
+        <div class="total"><div class="lbl" id="tLbl">당월 출하 매출</div><div class="v num" id="tVal"></div></div>
+        <div class="legend">
+          <div class="lg"><span class="lbl"><i class="dot" style="background:var(--pt)"></i>평택</span><span class="v num" id="pVal"></span><span class="s num" id="pSub"></span></div>
+          <div class="lg"><span class="lbl"><i class="dot" style="background:var(--hs)"></i>화성</span><span class="v num" id="hVal"></span><span class="s num" id="hSub"></span></div>
+        </div>
+      </div>
+      <div class="track" role="img" id="track"><div id="barP" style="background:var(--pt)"></div><div id="barH" style="background:var(--hs)"></div></div>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <h3>요약 · 재료원가</h3>
+      <div class="scroll"><table id="sumTbl"></table></div>
+      <p class="note" id="sumNote"></p>
+    </section>
+
+    <section class="card" style="margin-top:20px">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" id="tab-pt" aria-selected="true" aria-controls="pane">평택 로트별<span class="c" id="cPt"></span></button>
+        <button class="tab" role="tab" id="tab-hs" aria-selected="false" aria-controls="pane">화성 품목별<span class="c" id="cHs"></span></button>
+        <button class="tab" role="tab" id="tab-ck" aria-selected="false" aria-controls="pane">확인사항<span class="c" id="cCk"></span></button>
+      </div>
+      <div class="pane scroll" id="pane" role="tabpanel"></div>
+      <p class="note" id="paneNote"></p>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+</body>
+</html>
+<script src="src/engine.js"></script>
+</body>
+</html>
+<script src="src/parse.js"></script>
+</body>
+</html>
+<script src="src/report.js"></script>
+</body>
+</html>
+<script>
+
+const $ = id => document.getElementById(id);
+const won = v => v == null || !isFinite(v) ? '–' : Math.round(v).toLocaleString('ko-KR');
+const eok = v => v == null ? '–' : (v / 1e8).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '억';
+const pct = (v, d = 1) => v == null || !isFinite(v) ? '–' : (v * 100).toFixed(d) + '%';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const div = (a, b) => b ? a / b : null;
+
+let BOOK = null, RES = null, FILENAME = '', TAB = 'pt';
+
+// ---------- 파일 읽기 ----------
+function setStatus(msg, err) { $('status').textContent = msg || ''; $('status').classList.toggle('err', !!err); }
+$('pick').onclick = () => $('file').click();
+$('file').onchange = e => e.target.files[0] && load(e.target.files[0]);
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) load(f); });
+
+async function load(file) {
+  if (typeof XLSX === 'undefined') { setStatus('엑셀 읽기 도구를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도하세요.', true); return; }
+  FILENAME = file.name;
+  $('fname').innerHTML = '<b>' + esc(file.name) + '</b>';
+  setStatus('파일을 읽는 중…');
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array', cellFormula: true, cellDates: true });
+    BOOK = bookFromWorkbook(XLSX, wb);
+    $('month').value = ''; $('fx').value = '';
+    compute();
+  } catch (e) {
+    console.error(e); BOOK = null; RES = null;
+    setStatus('읽지 못했습니다: ' + (e.message || e), true);
+    $('dl').disabled = true;
+  }
+}
+
+function compute() {
+  if (!BOOK) return;
+  try {
+    const m = Number($('month').value) || undefined, fx = Number($('fx').value) || undefined;
+    RES = Engine.run(BOOK, { month: m, fx });
+    $('month').value = RES.opts.month; $('fx').value = RES.opts.fx;
+    $('month').disabled = $('fx').disabled = false;
+    $('dl').disabled = false;
+    setStatus(`${RES.opts.month}월 · 평택 로트 ${RES.lots.length}개(「${RES.lotSheet}」 시트) · 화성 품목 ${RES.hw.length}개 계산 완료`);
+    render();
+  } catch (e) {
+    console.error(e); RES = null;
+    $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true;
+    setStatus('계산하지 못했습니다: ' + (e.message || e), true);
+  }
+}
+$('month').onchange = compute; $('fx').onchange = compute;
+
+const totals = Report.totals, flagsOf = Report.flagsOf;
+
+// ---------- 화면 ----------
+function render() {
+  const R = RES, S = totals(R);
+  $('empty').hidden = true; $('result').hidden = false;
+  $('tLbl').textContent = `${R.opts.month}월 출하 매출 (출하대장 공급가액)`;
+  $('tVal').textContent = won(R.totalShip) + '원';
+  $('pVal').textContent = eok(S.P.매출); $('pSub').textContent = pct(div(S.P.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.P.원료 + S.P.자재, S.P.매출));
+  $('hVal').textContent = eok(S.H.매출); $('hSub').textContent = pct(div(S.H.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.H.원료 + S.H.자재, S.H.매출));
+  $('barP').style.width = (div(S.P.매출, R.totalShip) * 100 || 0) + '%';
+  $('barH').style.width = (div(S.H.매출, R.totalShip) * 100 || 0) + '%';
+  $('track').setAttribute('aria-label', `평택 ${pct(div(S.P.매출, R.totalShip))}, 화성 ${pct(div(S.H.매출, R.totalShip))}`);
+
+  const row = (label, cls, x, sub) => `<tr${cls === 'sum' ? ' class="sum"' : ''}><td class="t">${label}</td>
+    <td class="num">${won(x.매출)}</td><td class="num">${won(x.원료)}</td><td class="num">${won(x.자재)}</td>
+    <td class="num">${won(x.원료 + x.자재)}</td><td class="num">${pct(div(x.원료, x.매출))}</td><td class="num">${pct(div(x.자재, x.매출))}</td>
+    <td class="num">${pct(div(x.원료 + x.자재, x.매출))}</td><td class="num">${pct(div(x.매출, R.totalShip))}</td></tr>`;
+  $('sumTbl').innerHTML = `<thead><tr><th class="t">구분</th><th>매출</th><th>원료</th><th>자재</th><th>재료원가</th><th>원료율</th><th>자재율</th><th>재료원가율</th><th>매출 비중</th></tr></thead><tbody>
+    ${row('<span class="tag pt">평택</span>', '', S.P)}
+    ${row('<span class="tag hs">화성</span>', '', S.H)}
+    ${row('<span class="muted">　└ 화성 출하 품목</span>', '', S.Hu)}
+    ${row('<span class="muted">　└ 평택 로트의 화성분</span>', '', S.Hl)}
+    ${row('합계', 'sum', S.T)}</tbody>`;
+  $('sumNote').textContent = `원료 = 반제품+주정, 자재 = 제품원가 − 원료. 평택은 로트별 단가대장 원가, 화성은 출하중량 × kg당 제조원가로 계산합니다. 원가를 찾지 못한 화성 출하 ${won(R.Hu.미확인매출)}원은 매출에만 들어가고 원가에는 빠집니다.`;
+
+  const fl = flagsOf(R);
+  $('cPt').textContent = R.lots.length; $('cHs').textContent = R.hw.length; $('cCk').textContent = fl.length;
+  renderPane();
+}
+
+function renderPane() {
+  const R = RES; if (!R) return;
+  ['pt', 'hs', 'ck'].forEach(t => $('tab-' + t).setAttribute('aria-selected', String(t === TAB)));
+  let h = '', note = '';
+  if (TAB === 'pt') {
+    h = `<table><thead><tr><th class="t">구분</th><th class="t">로트번호</th><th class="t">제품명</th><th class="t">고객사</th><th class="t">생산구분</th><th>평택비율</th><th>매출(평택분)</th><th>원료</th><th>자재</th><th>재료원가율</th><th>수율</th><th>원가월</th><th class="t">확인</th></tr></thead><tbody>` +
+      R.lots.map(o => `<tr><td class="t">${o.구분}</td><td class="t num">${esc(o.로트번호)}</td><td class="t name" title="${esc(o.제품명)}">${esc(o.제품명)}</td><td class="t name">${esc(o.고객사)}</td><td class="t">${esc(o.생산구분)}</td>
+        <td class="num">${pct(o.K, 0)}</td><td class="num">${won(o.X)}</td><td class="num">${won(o.AD)}</td><td class="num">${won(o.AE)}</td><td class="num">${pct(o.AI)}</td><td class="num">${pct(o.AL)}</td><td class="num">${o.CM ?? '–'}</td>
+        <td class="t">${o.flags.map(f => `<span class="flag">${esc(f)}</span>`).join(' ')}</td></tr>`).join('') + '</tbody></table>';
+    note = '같은 제품·같은 원가월 로트끼리는 완료수량 비율로 원가를 나눕니다. 엑셀 파일에는 수주·규격·조정비율 등 전체 열이 들어갑니다.';
+  } else if (TAB === 'hs') {
+    h = `<table><thead><tr><th class="t">품목코드</th><th class="t">제품명</th><th class="t">거래처</th><th>출하중량(kg)</th><th>매출</th><th>kg당 원가</th><th>원료</th><th>자재</th><th>재료원가율</th><th>원가월</th><th class="t">확인</th></tr></thead><tbody>` +
+      R.hw.map(g => `<tr><td class="t num">${esc(g.품목코드)}</td><td class="t name" title="${esc(g.제품명)}">${esc(g.제품명)}</td><td class="t name" title="${esc(g.거래처)}">${esc(g.거래처)}</td>
+        <td class="num">${won(g.중량)}</td><td class="num">${won(g.매출)}</td><td class="num">${won(g.kg당원가)}</td><td class="num">${won(g.원료)}</td><td class="num">${won(g.자재)}</td><td class="num">${pct(g.원가율)}</td><td class="num">${g.원가월 ?? '–'}</td>
+        <td class="t">${g.flag ? `<span class="flag">${esc(g.flag)}</span>` : ''}</td></tr>`).join('') + '</tbody></table>';
+    note = '평택 로트목록에 없는 출하를 품목별로 묶었습니다. kg당 원가는 당월(없으면 가장 가까운 이전 달) 단가대장의 제품 제조금액 ÷ 생산중량입니다.';
+  } else {
+    const fl = flagsOf(R);
+    h = fl.length ? `<table><thead><tr><th class="t">구분</th><th class="t">코드</th><th class="t">로트</th><th class="t">제품명</th><th class="t">내용</th><th>금액</th></tr></thead><tbody>` +
+      fl.map(f => `<tr><td class="t">${f.구분}</td><td class="t num">${esc(f.코드)}</td><td class="t num">${esc(f.대상)}</td><td class="t name">${esc(f.이름)}</td><td class="t"><span class="flag">${esc(f.내용)}</span></td><td class="num">${won(f.금액)}</td></tr>`).join('') + '</tbody></table>'
+      : '<p style="padding:16px;margin:0" class="muted">확인할 항목이 없습니다.</p>';
+    note = '발주 제품코드 상이: 발주현황과 출하대장의 제품코드가 다른 로트입니다. 생산-수주 수량차이: 생산중량으로 환산한 수량이 수주수량과 1% 넘게 차이 나는 로트입니다.';
+  }
+  $('pane').innerHTML = h; $('paneNote').textContent = note;
+}
+['pt', 'hs', 'ck'].forEach(t => $('tab-' + t).onclick = () => { TAB = t; renderPane(); });
+
+// ---------- 엑셀 내보내기 ----------
+$('dl').onclick = () => {
+  if (!RES) return;
+  try {
+    const wb = Report.buildWorkbook(XLSX, RES, FILENAME);
+    const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = Report.outputName(RES);
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    setStatus('엑셀 파일을 내려받았습니다.');
+  } catch (e) { console.error(e); setStatus('엑셀을 만들지 못했습니다: ' + (e.message || e), true); }
+};
+</script>
+</body>
+</html>
