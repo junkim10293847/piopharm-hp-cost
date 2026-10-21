@@ -98,6 +98,22 @@ tr.sum td{font-weight:600;border-top:1.5px solid var(--fg)}
 .tab .c{font-family:var(--f-num);font-size:11px;margin-left:4px;color:var(--muted)}
 .pane{max-height:560px;overflow:auto}
 .note{font-size:12px;color:var(--muted);margin:0;padding:10px 16px 14px;border-top:1px solid var(--line)}
+header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
+
+/* 계산 기준 */
+.method{background:var(--surface);border:1px solid var(--line);border-radius:10px}
+.method summary{cursor:pointer;padding:14px 16px;font-weight:600;list-style-position:inside}
+.method[open] summary{border-bottom:1px solid var(--line)}
+.method-body{padding:4px 16px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:4px 32px}
+.method-body section{min-width:0}
+.method h4{margin:16px 0 8px;font-size:13.5px;display:flex;align-items:center;gap:6px}
+.method p,.method li,.method dd{font-size:13px;line-height:1.65;max-width:65ch}
+.method ul,.method ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.method dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:baseline}
+.method dd{margin:0}
+.method p{margin:8px 0 0}
+.method table.ratio{width:auto;min-width:240px;margin-top:10px;border:1px solid var(--line);border-radius:6px}
+.method table.ratio th,.method table.ratio td{padding:5px 12px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -106,7 +122,7 @@ tr.sum td{font-weight:600;border-top:1.5px solid var(--fg)}
 <div class="wrap">
   <header>
     <h1>화성·평택 매출원가</h1>
-    <p>기초 파일을 올리면 당월 출하를 화성·평택으로 나누고 품목별 재료원가(원료·자재)를 계산합니다.</p>
+    <p>기초 파일을 올리면 당월 출하를 화성·평택으로 나누고 품목별 재료원가(원료·자재)를 계산합니다. <a href="#method" id="methodLink">계산 기준 보기</a></p>
   </header>
 
   <section class="bar" aria-label="파일과 설정">
@@ -159,6 +175,74 @@ tr.sum td{font-weight:600;border-top:1.5px solid var(--fg)}
       <p class="note" id="paneNote"></p>
     </section>
   </div>
+
+  <details class="method" id="method">
+    <summary>계산 기준</summary>
+    <div class="method-body">
+      <section>
+        <h4>매출 구분</h4>
+        <dl>
+          <dt><span class="tag pt">평택</span></dt>
+          <dd>평택 로트목록 로트의 출하금액 × 평택비율</dd>
+          <dt><span class="tag hs">화성</span></dt>
+          <dd>출하대장 전체 − 평택 매출<br><span class="muted">= 로트목록에 없는 출하 + 평택 로트의 화성분(1 − 평택비율)</span></dd>
+        </dl>
+        <div class="scroll"><table class="ratio">
+          <thead><tr><th class="t">생산구분</th><th>평택</th><th>화성</th></tr></thead>
+          <tbody>
+            <tr><td class="t">평택</td><td class="num">100%</td><td class="num">0%</td></tr>
+            <tr><td class="t">화성포장</td><td class="num">80%</td><td class="num">20%</td></tr>
+            <tr><td class="t">멀티연질</td><td class="num">60%</td><td class="num">40%</td></tr>
+            <tr><td class="t">정제화성</td><td class="num">20%</td><td class="num">80%</td></tr>
+            <tr><td class="t">화성</td><td class="num">0%</td><td class="num">100%</td></tr>
+          </tbody>
+        </table></div>
+        <p class="muted">출하금액은 출하대장 공급가액이고, 로트는 제품코드와 로트번호를 함께 써서 찾습니다.</p>
+      </section>
+
+      <section>
+        <h4>재료원가 = 원료 + 자재</h4>
+        <ul>
+          <li><b>원료</b>: 제품 단가대장에서 반제품(자재코드 3…) 금액 + 주정(4C00000149)</li>
+          <li><b>자재</b>: 제품 제조금액 합계 − 원료</li>
+          <li>단가대장은 품목코드가 1…(제품)인 행만 씁니다.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h4><span class="tag pt">평택</span> 로트별 원가</h4>
+        <ol>
+          <li><b>원가월</b>: 로트 제조월(자재투입현황)의 단가대장. 없으면 그다음 달 대장</li>
+          <li><b>배분</b>: 같은 제품·같은 원가월 로트끼리 완료수량 비율로 제품 원가를 나눔</li>
+          <li><b>로트 원가</b> = 제품 원가 × 배분비율 × 평택비율 × 보정계수</li>
+          <li><b>수주</b>: 발주현황에서 매출 월이 당월인 행만 사용. 제품코드가 다르면 로트번호로만 찾고 확인사항에 표시</li>
+          <li><b>조정비율</b> = 생산중량을 규격으로 환산한 set 수량 ÷ 수주수량 → 원료원가·부자재원가</li>
+          <li><b>수율</b> = 생산중량 ÷ 투입중량 (같은 투입번호는 한 번만 합산)</li>
+        </ol>
+      </section>
+
+      <section>
+        <h4><span class="tag hs">화성</span> 품목별 원가</h4>
+        <ul>
+          <li><b>원가</b> = 출하중량 × (단가대장 제품 제조금액 ÷ 생산중량)</li>
+          <li><b>원가월</b>: 당월 대장, 없으면 가장 가까운 이전 달</li>
+          <li>원료·자재는 그 제품 단가대장의 원료 비율로 나눕니다.</li>
+          <li>제품이 아니거나(원료·상품 판매) 단가대장에 없는 품목은 원가를 비우고 확인사항에 표시합니다.</li>
+        </ul>
+        <p class="muted">평택 24개 품목에 같은 방식을 적용하면 로트 방식과 0.02% 이내로 일치합니다(2026년 9월 자료).</p>
+      </section>
+
+      <section>
+        <h4>자동으로 읽는 값</h4>
+        <ul>
+          <li><b>당월</b>: 출하대장 시트 이름의 월(예: 9월 출하대장)</li>
+          <li><b>외화 수주·환율</b>: 「당월 생산」 단가 수식 끝의 ×환율(예: *1360)</li>
+          <li><b>부분 출하 보정계수</b>: 생산중량 수식 끝에서 곱하는 칸(예: *AX63)</li>
+          <li><b>규격</b>: 작업지시현황 규격 문자열(예: 1,000mg x 30연질캡슐 x 3ea/set)</li>
+        </ul>
+      </section>
+    </div>
+  </details>
 </div>
 
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
@@ -287,6 +371,10 @@ function renderPane() {
   $('pane').innerHTML = h; $('paneNote').textContent = note;
 }
 ['pt', 'hs', 'ck'].forEach(t => $('tab-' + t).onclick = () => { TAB = t; renderPane(); });
+
+// 계산 기준: 링크로 열고 이동
+$('methodLink').onclick = e => { e.preventDefault(); $('method').open = true; $('method').scrollIntoView({ behavior: 'smooth', block: 'start' }); history.replaceState(null, '', '#method'); };
+if (location.hash === '#method') $('method').open = true;
 
 // ---------- 엑셀 내보내기 ----------
 $('dl').onclick = () => {
