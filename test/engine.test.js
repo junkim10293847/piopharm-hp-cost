@@ -92,3 +92,52 @@ test('사용자 설정: 당월·환율·비율 직접 지정', () => {
   near(R2.lots.find(o => o.로트번호 === 'T004').OPrice, 1.5 * 1400, '환율 지정');
   near(R2.lots.find(o => o.로트번호 === 'T003').X, 500000, '비율 지정');
 });
+
+// ---------- 시트별 개별 파일 ----------
+const { bookFromWorkbooks } = require('../src/parse.js');
+// 통합 기초 파일을 시트마다 따로 저장한 것처럼 나눔 (ERP에서 하나씩 내려받은 상태)
+function splitFixture(nameOf) {
+  const wb = fixtureWorkbook();
+  return wb.SheetNames.map(sn => {
+    const one = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(one, wb.Sheets[sn], 'Sheet1');
+    const buf = XLSX.write(one, { type: 'buffer', bookType: 'xlsx' });
+    return { name: nameOf(sn), wb: XLSX.read(buf, { type: 'buffer', cellFormula: true, cellDates: true }) };
+  });
+}
+const sameResult = (R2) => {
+  const a = Report.totals(R), b = Report.totals(R2);
+  near(b.P.매출, a.P.매출, '평택 매출'); near(b.H.매출, a.H.매출, '화성 매출');
+  near(b.P.원료, a.P.원료, '평택 원료'); near(b.H.자재, a.H.자재, '화성 자재');
+  assert.equal(R2.lots.length, R.lots.length);
+  assert.equal(R2.opts.month, R.opts.month);
+};
+
+test('개별 파일: 시트 이름이 Sheet1이어도 파일 이름으로 인식, 통합 파일과 결과 동일', () => {
+  const files = splitFixture(sn => sn + '.xlsx');
+  const B = bookFromWorkbooks(XLSX, files);
+  assert.deepEqual(B.missing, []);
+  sameResult(Engine.run(B));
+});
+
+test('개별 파일: 파일 이름에 단서가 없어도 머리글로 인식(월은 파일 이름에서)', () => {
+  let i = 0;
+  const files = splitFixture(sn => (sn.match(/\d+월/) ? sn.match(/\d+월/)[0] + '_' : '') + 'ERP_export_' + (i++) + '.xlsx');
+  const B = bookFromWorkbooks(XLSX, files);
+  assert.deepEqual(B.missing, []);
+  assert.ok(B.recognized.every(r => r.how === '머리글'));
+  sameResult(Engine.run(B));
+});
+
+test('개별 파일: 빠진 파일 알려줌, 같은 종류 중복은 첫 번째만 사용', () => {
+  const files = splitFixture(sn => sn + '.xlsx').filter(f => !f.name.includes('자재투입'));
+  const B = bookFromWorkbooks(XLSX, [...files, files.find(f => f.name.includes('출하대장'))]);
+  assert.deepEqual(B.missing, ['자재투입현황']);
+  assert.equal(B.recognized.filter(r => r.dup).length, 1);
+});
+
+test('개별 파일: 통합 파일 1개를 넣어도 그대로 동작', () => {
+  const B = bookFromWorkbooks(XLSX, [{ name: '기초.xlsx', wb: fixtureWorkbook() }]);
+  assert.deepEqual(B.missing, []);
+  sameResult(Engine.run(B));
+});

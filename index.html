@@ -51,6 +51,18 @@ button,input{font:inherit;color:inherit}
 .opts label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
 .opts input{width:76px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:5px 8px;text-align:right}
 .status{font-size:13px;color:var(--muted)}
+.kinds{flex-basis:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px 16px;margin:0;padding:0;list-style:none}
+.kinds li{display:flex;align-items:baseline;gap:8px;font-size:13px;min-width:0}
+.kinds .mk{flex:none;width:14px;text-align:center;font-weight:700;color:var(--muted)}
+.kinds li.ok .mk{color:var(--ok)}
+.kinds .kn{flex:none;font-weight:500}
+.kinds li:not(.ok) .kn{color:var(--muted)}
+.kinds .fs{min-width:0;display:flex;flex-wrap:wrap;gap:4px}
+.chip{display:inline-flex;align-items:center;gap:2px;max-width:100%;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:0 2px 0 7px;font-size:12px;color:var(--muted)}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip button{border:0;background:none;cursor:pointer;color:var(--muted);padding:0 4px;font-size:13px;line-height:1.4}
+.chip button:hover{color:var(--warn)}
+.chip.warn{border-color:var(--warn);color:var(--warn)}
 .status.err{color:var(--warn)}
 
 /* 빈 상태 */
@@ -127,21 +139,23 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
 
   <section class="bar" aria-label="파일과 설정">
     <div class="drop" id="drop">
-      <button class="btn primary" id="pick" type="button">기초 파일 선택</button>
-      <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
-      <span class="fname" id="fname">엑셀 파일을 여기에 끌어다 놓아도 됩니다</span>
+      <button class="btn primary" id="pick" type="button">파일 추가</button>
+      <input type="file" id="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
+      <span class="fname" id="fname">시트별 파일을 하나씩, 여러 개 한꺼번에, 또는 통합 파일 1개 — 끌어다 놓아도 됩니다</span>
+      <button class="btn" id="clear" type="button" hidden>모두 지우기</button>
     </div>
     <div class="opts">
       <label for="month">당월 <input id="month" type="number" min="1" max="12" class="num" disabled></label>
       <label for="fx">환율 <input id="fx" type="number" step="1" class="num" disabled></label>
       <button class="btn" id="dl" type="button" disabled>엑셀 다운로드</button>
     </div>
+    <ul class="kinds" id="kinds" aria-label="필요한 자료"></ul>
     <div class="status" id="status" role="status" aria-live="polite"></div>
   </section>
 
   <section class="empty" id="empty">
     <h2>필요한 파일</h2>
-    <div class="step"><span class="k">원천 시트</span><p>발주 현황 · 작업지시현황 · 출하대장 · 제품 단가 대장(월별) · 자재투입현황. 시트 이름에 이 단어만 들어 있으면 됩니다.</p></div>
+    <div class="step"><span class="k">원천 자료</span><p>발주 현황 · 작업지시현황 · 출하대장 · 제품 단가 대장(월별) · 자재투입현황. ERP에서 받은 파일을 하나씩 넣어도 되고, 한 파일에 모아도 됩니다. 시트·파일 이름이나 머리글로 종류를 알아봅니다. 단가 대장·출하대장은 이름에 '9월'처럼 월이 있으면 됩니다.</p></div>
     <div class="step"><span class="k">평택 로트목록</span><p>지금 쓰는 「당월 생산」 시트(제공자료 칸)를 그대로 읽습니다. 「로트목록」 표 형식도 됩니다.</p></div>
     <div class="step"><span class="k">결과</span><p>평택 = 로트목록 출하 × 평택비율, 화성 = 나머지 출하. 요약·평택 로트별·화성 품목별·확인사항을 엑셀로 내려받습니다.</p></div>
     <p class="lock">파일은 이 브라우저 안에서만 읽고 계산합니다. 서버로 전송하거나 저장하지 않습니다.</p>
@@ -271,31 +285,63 @@ let BOOK = null, RES = null, FILENAME = '', TAB = 'pt';
 // ---------- 파일 읽기 ----------
 function setStatus(msg, err) { $('status').textContent = msg || ''; $('status').classList.toggle('err', !!err); }
 $('pick').onclick = () => $('file').click();
-$('file').onchange = e => e.target.files[0] && load(e.target.files[0]);
+$('file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
 const drop = $('drop');
 ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f) load(f); });
+drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
+$('clear').onclick = () => { FILES.clear(); rebuild(); };
 
-async function load(file) {
+// 올린 파일: 이름 → 통합문서. 같은 이름을 다시 올리면 바꿔 끼움
+const FILES = new Map();
+async function addFiles(list) {
   if (typeof XLSX === 'undefined') { setStatus('엑셀 읽기 도구를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도하세요.', true); return; }
-  FILENAME = file.name;
-  $('fname').innerHTML = '<b>' + esc(file.name) + '</b>';
+  const files = [...list].filter(f => /\.xls[xm]?$/i.test(f.name));
+  if (!files.length) return;
   setStatus('파일을 읽는 중…');
   await new Promise(r => setTimeout(r, 30));
-  try {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array', cellFormula: true, cellDates: true });
-    BOOK = bookFromWorkbook(XLSX, wb);
-    $('month').value = ''; $('fx').value = '';
-    compute();
-  } catch (e) {
-    console.error(e); BOOK = null; RES = null;
-    setStatus('읽지 못했습니다: ' + (e.message || e), true);
-    $('dl').disabled = true;
+  const bad = [];
+  for (const f of files) {
+    try { FILES.set(f.name, XLSX.read(await f.arrayBuffer(), { type: 'array', cellFormula: true, cellDates: true })); }
+    catch (e) { console.error(e); bad.push(f.name); }
   }
+  rebuild(bad.length ? '읽지 못한 파일: ' + bad.join(', ') : '');
 }
 
+function rebuild(err) {
+  BOOK = null; RES = null;
+  $('month').value = ''; $('fx').value = '';
+  const names = [...FILES.keys()];
+  FILENAME = names.join(', ');
+  $('clear').hidden = !names.length;
+  $('fname').innerHTML = names.length ? `<b>${names.length}개 파일</b>` : '시트별 파일을 하나씩, 여러 개 한꺼번에, 또는 통합 파일 1개 — 끌어다 놓아도 됩니다';
+  const B = names.length ? bookFromWorkbooks(XLSX, names.map(n => ({ name: n, wb: FILES.get(n) }))) : { recognized: [], missing: SHEET_KINDS.map(k => k.label) };
+  renderKinds(B);
+  if (names.length && !B.missing.length) { BOOK = B; compute(); if (err) setStatus(err, true); return; }
+  $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true;
+  $('month').disabled = $('fx').disabled = true;
+  setStatus(err || (names.length ? '아직 필요한 자료: ' + B.missing.join(', ') : ''), !!err);
+}
+
+function renderKinds(B) {
+  const chip = (r, warn) => `<span class="chip${warn ? ' warn' : ''}" title="${esc(r.file + ' · ' + r.sheet + (r.note ? ' — ' + r.note : ''))}"><span>${esc(r.file)}${r.month && !r.file.includes(r.month + '월') ? ` (${r.month}월)` : ''}</span><button type="button" data-rm="${esc(r.file)}" aria-label="${esc(r.file)} 빼기">×</button></span>`;
+  const rows = SHEET_KINDS.map(k => {
+    const rs = B.recognized.filter(r => r.kind === k.label);
+    const seen = new Set(), uniq = rs.filter(r => !seen.has(r.file + r.month) && seen.add(r.file + r.month));
+    return `<li class="${uniq.some(r => !r.dup) ? 'ok' : ''}"><span class="mk">${uniq.some(r => !r.dup) ? '✓' : '·'}</span><span class="kn">${k.label}</span><span class="fs">${uniq.map(r => chip(r, r.dup || r.note)).join('')}</span></li>`;
+  });
+  const used = new Set(B.recognized.filter(r => r.kind).map(r => r.file));
+  const other = [...new Set(B.recognized.filter(r => !used.has(r.file)).map(r => r.file))];
+  if (other.length) rows.push(`<li><span class="mk">?</span><span class="kn">알아보지 못함</span><span class="fs">${other.map(f => chip({ file: f, sheet: '', note: '종류를 알 수 없어 사용 안 함' }, true)).join('')}</span></li>`);
+  $('kinds').innerHTML = rows.join('');
+}
+$('kinds').onclick = e => { const f = e.target.dataset && e.target.dataset.rm; if (f) { FILES.delete(f); rebuild(); } };
+rebuild();
+
+function lotSrc() {
+  const sh = BOOK.sheets.find(x => x.name === RES.lotSheet);
+  return sh && sh.file && FILES.size > 1 ? sh.file : `「${RES.lotSheet}」 시트`;
+}
 function compute() {
   if (!BOOK) return;
   try {
@@ -304,7 +350,7 @@ function compute() {
     $('month').value = RES.opts.month; $('fx').value = RES.opts.fx;
     $('month').disabled = $('fx').disabled = false;
     $('dl').disabled = false;
-    setStatus(`${RES.opts.month}월 · 평택 로트 ${RES.lots.length}개(「${RES.lotSheet}」 시트) · 화성 품목 ${RES.hw.length}개 계산 완료`);
+    setStatus(`${RES.opts.month}월 · 평택 로트 ${RES.lots.length}개(${lotSrc()}) · 화성 품목 ${RES.hw.length}개 계산 완료`);
     render();
   } catch (e) {
     console.error(e); RES = null;
