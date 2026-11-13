@@ -508,10 +508,14 @@ async function putAll(f) {
   setStatus('파일을 읽는 중…');
   try {
     const wb = await readFile(f);
-    if (!MONTH_SET) { const sn = wb.SheetNames.find(n => /출하대장/.test(n.replace(/\s/g, ''))), m = sn && sn.match(/(\d{1,2})\s*월/); if (m) $('month').value = +m[1]; }
+    // 파일 안 출하대장 시트 이름의 월을 따라 당월을 맞춤 (예: 「9월 출하대장」 → 9월)
+    const sn = wb.SheetNames.find(n => /출하대장/.test(n.replace(/\s/g, ''))), mm = sn && sn.match(/(\d{1,2})\s*월/);
+    let moved = '';
+    if (mm && +mm[1] !== curMonth()) { stashMonth(); for (const k in FILLED) delete FILLED[k]; moved = `${curMonth()}월 → ${+mm[1]}월`; $('month').value = +mm[1]; MONTH_SET = true; }
     let n = 0;
     for (const slot of SLOTS) { const sh = pickSheet(XLSX, wb, slot, curMonth(), true); if (sh) { FILLED[slot.id] = { wb, file: f.name, sheet: sh }; n++; } }
     refresh(n ? '' : `${f.name}: 칸에 맞는 시트를 찾지 못했습니다. 칸마다 직접 넣어 주세요.`);
+    if (moved && n) $('status').textContent += ` · 파일의 출하대장이 ${+mm[1]}월이라 당월을 바꿨습니다(${moved})`;
   } catch (e) { console.error(e); showError('파일을 읽지 못했습니다', `${f.name}\n${e.message || e}`); }
 }
 
@@ -807,6 +811,13 @@ async function archAddFiles(list, kind) {
   const bad = results.filter(r => r.err);
   if (bad.length) showError('보관함에 넣지 못한 파일', bad.map(r => `${r.file}: ${r.err}`).join('\n'));
   else setStatus(`보관함에 ${results.reduce((a, r) => a + r.saved.length, 0)}건 저장했습니다.`);
+  // 방금 넣은 자료로 계산할 수 있게 된 달 → 지금 화면이 비어 있으면 바로 그 달을 계산해 보여 줌
+  const touched = [...new Set(results.flatMap(r => (r.saved || []).filter(x => !x.guard && x.ym).map(x => x.ym)))].filter(archReady).sort();
+  if (touched.length) {
+    const ym = touched[touched.length - 1];
+    if (!RES && !Object.keys(FILLED).length) { computeFromArchive(ym); $('status').textContent += ' · 보관함에 넣은 자료로 계산했습니다'; }
+    else if (ym !== ymNow()) $('status').textContent += ` · ${touched.map(y => Number(y.slice(5)) + '월').join('·')}은 계산 내역에서 눌러 계산할 수 있습니다`;
+  }
 }
 async function archAutoSave() {
   try {
