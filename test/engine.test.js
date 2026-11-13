@@ -53,11 +53,15 @@ test('출하 안 된 로트: 매출·원가 0, 잔량을 재료비로 남김', (
   assert.ok(o.flags.some(f => f.startsWith('출하 없음')));
 });
 
-test('로트목록에 없는 평택 출하(작업지시 10-30) → 전월 생산', () => {
+test('로트목록에 없는 평택 출하(작업지시 10-30) → 전월 생산, 생산월은 보관함 이전 달 로트목록으로만', () => {
   assert.equal(R.prev.length, 1);
   const o = R.prev[0];
-  assert.equal(o.로트번호, 'T005'); assert.equal(o.원가월, 8);
-  near(o.매출, 390000, '매출'); near(o.원가, 560000, '56kg × 10,000'); near(o.원료, 400000, '원료');
+  assert.equal(o.로트번호, 'T005'); assert.equal(o.원가, null, '이전 달 로트목록이 없으면 빈칸');
+  assert.ok(o.flags.some(f => f.includes('생산월 확인 불가')));
+  const R2 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { history: { lotMonth: new Map([['1AA0000003|T005', 8]]) } });
+  const p = R2.prev[0];
+  assert.equal(p.원가월, 8); assert.match(p.생산월근거, /보관함/);
+  near(p.매출, 390000, '매출'); near(p.원가, 560000, '56kg × 10,000'); near(p.원료, 400000, '원료');
 });
 
 test('추정하지 않음: 생산월 단가대장이 없으면 원가 빈칸(당월 대장으로 대신하지 않음)', () => {
@@ -67,6 +71,7 @@ test('추정하지 않음: 생산월 단가대장이 없으면 원가 빈칸(당
   assert.equal(t4.원가, null); assert.equal(t5.원가, null);
   assert.ok(t4.flags.some(f => f.includes('원가 빈칸'))); assert.ok(t5.flags.some(f => f.includes('원가 빈칸')));
   near(R2.미확인.평택, 975000 + 390000, '원가 미확인 평택 매출');
+  assert.ok(t4.flags.some(f => f.includes('생산월 8월')));
 });
 
 test('화성 품목: 출하중량 × kg당 제조원가', () => {

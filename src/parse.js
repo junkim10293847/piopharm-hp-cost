@@ -165,5 +165,5 @@ if (typeof module !== 'undefined') {
   module.exports = bookFromWorkbook;
   module.exports.bookFromWorkbooks = bookFromWorkbooks;
   module.exports.SHEET_KINDS = SHEET_KINDS;
-  Object.assign(module.exports, { SLOTS, pickSheet, bookFromSlots, headerMissing, prevMonth });
+  Object.assign(module.exports, { SLOTS, pickSheet, bookFromSlots, headerMissing, prevMonth, sheetsOf });
 }
