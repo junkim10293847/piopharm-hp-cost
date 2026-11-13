@@ -26,6 +26,12 @@ jobs:
           # 캐시 때문에 예전 계산 파일이 섞이지 않게, 배포마다 스크립트 주소에 커밋 번호를 붙임
           sed -i -E "s#(src/[a-z]+\.js)\"#\1?v=${GITHUB_SHA::7}\"#g" _site/index.html
           grep -o 'src/[a-z]*\.js?v=[0-9a-f]*' _site/index.html
+          # 새 버전 알림용: 화면에 빌드 번호를 넣고 version.json을 함께 올림
+          sed -i "s#__BUILD__#${GITHUB_SHA::7}#" _site/index.html
+          VER=$(grep -o "VERSION = '[^']*'" src/report.js | cut -d"'" -f2)
+          VDATE=$(grep -o "VERSION_DATE = '[^']*'" src/report.js | cut -d"'" -f2)
+          printf '{"build":"%s","version":"%s","date":"%s","at":"%s"}\n' "${GITHUB_SHA::7}" "$VER" "$VDATE" "$(date -u +%FT%TZ)" > _site/version.json
+          cat _site/version.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

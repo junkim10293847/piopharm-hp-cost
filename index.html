@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Cache-Control" content="no-cache">
+<meta name="build" content="__BUILD__">
 <title>화성·평택 매출원가</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -211,6 +212,11 @@ tr.click:hover td{background:var(--bg)}
 :root[data-theme="dark"] .req-b{color:#0f1514}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .req-b{color:#0f1514}}
 .slot.req .btn{background:var(--surface)}
+/* 새 버전 알림 */
+.upd{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:50;background:var(--fg);color:var(--surface);border-radius:10px;padding:10px 12px 10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-shadow:0 6px 24px rgba(0,0,0,.25);max-width:calc(100vw - 32px);font-size:13.5px}
+.upd .s{opacity:.75;font-size:12px}
+.upd .btn{background:var(--pt);border-color:var(--pt);color:#fff}
+.upd .x{background:none;border:0;color:inherit;opacity:.7;cursor:pointer;font-size:16px;padding:0 4px}
 /* 오류 창 */
 dialog.err{border:1px solid var(--warn);border-radius:10px;padding:0;max-width:min(460px,calc(100vw - 32px));background:var(--surface);color:var(--fg)}
 dialog.err::backdrop{background:rgba(0,0,0,.35)}
@@ -222,6 +228,10 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
 </head>
 <body>
 
+<div class="upd" id="upd" role="status" aria-live="polite" hidden>
+  <div><b>새 버전이 있습니다</b> <span id="updVer"></span><div class="s">새로 고침하면 반영됩니다. 보관함·계산 규칙·검수 표시는 그대로 남고, 계산 칸에 넣은 파일만 다시 넣으면 됩니다.</div></div>
+  <button class="btn" type="button" id="updGo">새로 고침</button><button class="x" type="button" id="updX" aria-label="닫기">×</button>
+</div>
 <dialog class="err" id="errDlg" aria-labelledby="errTitle">
   <h2 id="errTitle">오류</h2>
   <p id="errMsg"></p>
@@ -837,6 +847,32 @@ $('archEdit').onclick = async e => {
 };
 
 archLoad();
+
+// ---------- 새 버전 알림 ----------
+// 배포할 때 이 화면에 빌드 번호(meta build)와 version.json을 함께 올림. 다르면 알림
+(function () {
+  const mine = (document.querySelector('meta[name="build"]') || {}).content || '';
+  if (!mine || mine.startsWith('__') || location.protocol === 'file:') return;   // 로컬에서 열었을 때는 확인 안 함
+  let shown = false, dismissed = '';
+  async function check() {
+    if (shown) return;
+    try {
+      const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const v = await r.json();
+      if (v.build && v.build !== mine && v.build !== dismissed) {
+        $('updVer').textContent = v.version ? `(${v.version}${v.date ? ' · ' + v.date : ''})` : '';
+        $('upd').hidden = false; shown = true; window.__newBuild = v.build;
+      }
+    } catch (e) { /* 연결이 안 되면 다음에 다시 */ }
+  }
+  $('updGo').onclick = () => location.reload();
+  $('updX').onclick = () => { $('upd').hidden = true; shown = false; dismissed = window.__newBuild || ''; };
+  setInterval(check, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+  window.addEventListener('focus', check);
+  setTimeout(check, 3000);
+})();
 
 refresh();
 
