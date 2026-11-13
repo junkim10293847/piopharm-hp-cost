@@ -217,6 +217,12 @@ tr.click:hover td{background:var(--bg)}
 .upd .s{opacity:.75;font-size:12px}
 .upd .btn{background:var(--pt);border-color:var(--pt);color:#fff}
 .upd .x{background:none;border:0;color:inherit;opacity:.7;cursor:pointer;font-size:16px;padding:0 4px}
+.btn.nav{padding:5px 10px;font-size:12px}
+.hist{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:12px;color:var(--muted)}
+.hist .chip2.cur{background:var(--fg);color:var(--surface);border-color:var(--fg)}
+.hist .chip2.cur .n{color:var(--surface)}
+.chip2 .del{border:0;background:none;color:var(--muted);cursor:pointer;padding:0 0 0 4px;font-size:13px;line-height:1}
+.chip2 .del:hover{color:var(--warn)}
 /* 오류 창 */
 dialog.err{border:1px solid var(--warn);border-radius:10px;padding:0;max-width:min(460px,calc(100vw - 32px));background:var(--surface);color:var(--fg)}
 dialog.err::backdrop{background:rgba(0,0,0,.35)}
@@ -245,10 +251,14 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
 
   <section class="bar" aria-label="자료와 설정">
     <div class="opts">
+      <button class="btn nav" type="button" id="mPrev" aria-label="이전 달">◀</button>
       <label for="month">당월 <input id="month" type="number" min="1" max="12" class="num"></label>
       <span class="pm" id="pm"></span>
+      <button class="btn nav" type="button" id="mNext" aria-label="다음 달">▶</button>
+      <span class="hist" id="hist"></span>
     </div>
     <div class="opts" style="margin-left:auto">
+      <button class="btn" id="archToggle" type="button" aria-expanded="false">보관함 열기</button>
       <button class="btn" id="pickAll" type="button" title="여러 시트가 들어 있는 파일 1개를 넣으면 칸에 자동으로 나눠 넣습니다">통합 파일로 한 번에</button>
       <button class="btn" id="clear" type="button" hidden>모두 비우기</button>
       <button class="btn primary" id="dl" type="button" disabled>엑셀 다운로드</button>
@@ -498,11 +508,52 @@ $('pickAll').onclick = () => { TARGET = null; $('file').click(); };
 $('clear').onclick = () => { for (const k in FILLED) delete FILLED[k]; refresh(); };
 // 입력하는 즉시 반영 (칸 버튼을 바로 눌러도 클릭이 빠지지 않게, 같은 달이면 다시 그리지 않음)
 let SHOWN_MONTH = null;
+// 달마다 넣은 칸 파일과 계산 결과를 따로 기억 → ◀ ▶ 로 오가기
+const MONTHS = {};            // ym → { filled, res, book, file }
+let ARCH_USE = null;          // 보관함 자료로 계산 중인 달
+function archKeyFor(slot, ym) {
+  const pm = y => { const [a, b] = y.split('-').map(Number); return b === 1 ? `${a - 1}-12` : `${a}-${String(b - 1).padStart(2, '0')}`; };
+  return { lots: `lots:${ym}`, ship: `ship:${ym}`, order: 'order', wo: 'wo', ledCur: `led:${ym}`, ledPrev: `led:${pm(ym)}`, ledPrev2: `led:${pm(pm(ym))}`, fco: `fco:${ym}` }[slot.id];
+}
+const ymNow = () => Archive.ymFromMonth(curMonth(), new Date());
+function stashMonth() {
+  const ym = ymNow();
+  if (Object.keys(FILLED).length || RES) MONTHS[ym] = { filled: { ...FILLED }, res: RES, book: BOOK, file: FILENAME };
+}
+function gotoMonth(m) {
+  if (!(m >= 1 && m <= 12)) return;
+  if (m === SHOWN_MONTH && RES) return;
+  stashMonth();
+  $('month').value = m; MONTH_SET = true;
+  const ym = ymNow(), st = MONTHS[ym];
+  for (const k in FILLED) delete FILLED[k];
+  if (st && st.res) {
+    Object.assign(FILLED, st.filled); BOOK = st.book; RES = st.res; FILENAME = st.file || ''; ARCH_USE = st.book && st.book.fromArchive ? st.book.fromArchive : null;
+    renderSlots(); $('clear').hidden = !Object.keys(FILLED).length; buildItems(); $('dl').disabled = false;
+    setStatus(`${m}월 계산 결과로 돌아왔습니다 (${st.book && st.book.fromArchive ? '보관함' : '칸 파일'}).`); render(); histRender(); return;
+  }
+  if (st) Object.assign(FILLED, st.filled);
+  if (!Object.keys(FILLED).length && archReady(ym)) { computeFromArchive(ym); return; }
+  refresh(); histRender();
+}
 $('month').oninput = $('month').onchange = () => {
   const v = Number($('month').value);
   if (!(v >= 1 && v <= 12) || v === SHOWN_MONTH) return;
-  MONTH_SET = true; refresh();
+  $('month').value = SHOWN_MONTH || v; gotoMonth(v);
 };
+$('mPrev').onclick = () => gotoMonth(curMonth() === 1 ? 12 : curMonth() - 1);
+$('mNext').onclick = () => gotoMonth(curMonth() === 12 ? 1 : curMonth() + 1);
+function histRender() {
+  const cur = ymNow();
+  const yms = new Set([...Object.keys(MONTHS).filter(k => MONTHS[k].res), ...(typeof ARCH === 'object' ? Object.keys(ARCH).filter(k => k.startsWith('lots:')).map(k => k.slice(5)).filter(archReady) : [])]);
+  if (RES) yms.add(cur);
+  const list = [...yms].sort();
+  $('hist').innerHTML = list.length ? '계산 내역 ' + list.map(ym => {
+    const done = (MONTHS[ym] && MONTHS[ym].res) || (ym === cur && RES);
+    return `<button type="button" class="chip2${ym === cur ? ' cur' : ''}" data-goto="${ym}" title="${done ? '계산한 결과' : '보관함 자료로 계산'}">${Number(ym.slice(5))}월<span class="n">${done ? '✓' : '보관함'}</span></button>`;
+  }).join('') : '';
+}
+$('hist').onclick = e => { const b = e.target.closest('[data-goto]'); if (b) gotoMonth(Number(b.dataset.goto.slice(5))); };
 
 function renderSlots() {
   const m = curMonth(); SHOWN_MONTH = m;
@@ -513,15 +564,17 @@ function renderSlots() {
     const w = B.warn.find(x => x.slot === slot.id);
     const title = (slot.optional ? '' : '<span class="req-b">필수</span>') + slot.label + (sm ? ` · ${sm}월` : '') + (slot.optional ? ' <span class="no">(선택)</span>' : '');
     let body;
-    if (!f) body = `<div class="slot-act"><button class="btn" type="button" data-pick="${slot.id}">파일 선택</button><span class="slot-hint">또는 여기로 끌어다 놓기</span></div>`;
+    const ak = ARCH_USE ? archKeyFor(slot, ARCH_USE) : null, ar = ak && typeof ARCH === 'object' ? ARCH[ak] : null;
+    if (!f && ar) body = `<div class="slot-act"><span class="slot-file" title="${esc(ar.src)}">보관함 자료 사용 · ${won(ar.n)}행</span><button class="btn" type="button" data-pick="${slot.id}">파일로 바꾸기</button></div>`;
+    else if (!f) body = `<div class="slot-act"><button class="btn" type="button" data-pick="${slot.id}">파일 선택</button><span class="slot-hint">또는 여기로 끌어다 놓기</span></div>`;
     else {
       const names = f.wb.SheetNames;
       body = `<div class="slot-act"><span class="slot-file" title="${esc(f.file)}">${esc(f.file)}</span><button class="rm" type="button" data-rm="${slot.id}" aria-label="${esc(slot.label)} 비우기">×</button></div>`
         + (names.length > 1 ? `<select data-sheet="${slot.id}" aria-label="쓸 시트">${names.map(n => `<option value="${esc(n)}"${n === f.sheet ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>` : '')
         + (w ? `<div class="slot-warn">이 칸에 맞는 열이 없습니다: ${esc(w.missing.join(', '))}</div>` : '');
     }
-    return `<div class="slot${slot.optional ? ' opt' : ' req'}${f ? ' filled' : ''}${w ? ' bad' : ''}" data-slot="${slot.id}">
-      <div class="slot-h"><span class="no">${i + 1}</span>${title}<span class="mk">${f ? (w ? '!' : '✓') : ''}</span></div>
+    return `<div class="slot${slot.optional ? ' opt' : ' req'}${f || ar ? ' filled' : ''}${w ? ' bad' : ''}" data-slot="${slot.id}">
+      <div class="slot-h"><span class="no">${i + 1}</span>${title}<span class="mk">${f ? (w ? '!' : '✓') : ar ? '✓' : ''}</span></div>
       <div class="slot-hint">${esc(slot.hint)}</div>${body}</div>`;
   }).join('');
   return B;
@@ -542,7 +595,7 @@ document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => { if (slotOf(e)) return; e.preventDefault(); putAll(e.dataTransfer.files[0]); });
 
 function refresh(err) {
-  BOOK = null; RES = null;
+  BOOK = null; RES = null; ARCH_USE = null;
   const B = renderSlots();
   const files = [...new Set(Object.values(FILLED).map(f => f.file))];
   FILENAME = files.join(', ');
@@ -592,8 +645,8 @@ let ATARGET = null;
 function archSlotsRender() {
   $('archSlots').innerHTML = ASLOTS.map((a, i) => {
     const recs = Object.values(ARCH).filter(r => r.kind === a.id).sort((x, y) => (x.ym || '') < (y.ym || '') ? 1 : -1);
-    const chips = a.latest ? (ARCH[a.id] ? `<button type="button" class="chip2${ARCH[a.id].edits && ARCH[a.id].edits.length ? ' ed' : ''}" data-edit="${a.id}">최신본 ${(ARCH[a.id].savedAt || '').slice(5, 10).replace('-', '/')} <span class="n">${won(ARCH[a.id].n)}행</span></button>` : '')
-      : recs.map(r => `<button type="button" class="chip2${r.edits && r.edits.length ? ' ed' : ''}" data-edit="${esc(r.key)}" title="${esc(r.src)}">${Number(r.ym.slice(5))}월${r.ym.slice(0, 4) !== String(new Date().getFullYear()) ? `(${r.ym.slice(2, 4)})` : ''}<span class="n">${won(r.n)}</span></button>`).join('');
+    const chips = a.latest ? (ARCH[a.id] ? `<span class="chip2${ARCH[a.id].edits && ARCH[a.id].edits.length ? ' ed' : ''}" data-edit="${a.id}">최신본 ${(ARCH[a.id].savedAt || '').slice(5, 10).replace('-', '/')} <span class="n">${won(ARCH[a.id].n)}행</span><button type="button" class="del" data-del="${a.id}" aria-label="최신본 빼기">×</button></span>` : '')
+      : recs.map(r => `<span class="chip2${r.edits && r.edits.length ? ' ed' : ''}" data-edit="${esc(r.key)}" title="${esc(r.src)} · 눌러서 고치기">${Number(r.ym.slice(5))}월${r.ym.slice(0, 4) !== String(new Date().getFullYear()) ? `(${r.ym.slice(2, 4)})` : ''}<span class="n">${won(r.n)}</span><button type="button" class="del" data-del="${esc(r.key)}" aria-label="${Number(r.ym.slice(5))}월 빼기">×</button></span>`).join('');
     const filled = a.latest ? !!ARCH[a.id] : recs.length > 0;
     return `<div class="slot${filled ? ' filled' : ''}" data-aslot="${a.id}">
       <div class="slot-h"><span class="no">${i + 1}</span>${a.label}<span class="mk">${filled ? '✓' : ''}</span></div>
@@ -602,8 +655,17 @@ function archSlotsRender() {
       <div class="slot-act"><button class="btn" type="button" data-apick="${a.id}">파일 넣기</button><span class="slot-hint">여러 개 끌어다 놓기</span></div></div>`;
   }).join('');
 }
+const archReady = ym => !!(ARCH[`lots:${ym}`] && ARCH[`ship:${ym}`] && ARCH[`led:${ym}`] && ARCH.order && ARCH.wo);
+$('archToggle').onclick = () => { const d = $('arch'); d.open = !d.open; if (d.open) d.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+$('arch').addEventListener('toggle', () => { $('archToggle').textContent = $('arch').open ? '보관함 닫기' : '보관함 열기'; $('archToggle').setAttribute('aria-expanded', String($('arch').open)); });
+async function archDelete(key) {
+  const r = ARCH[key]; if (!r) return;
+  if (!confirm(`${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ' 최신본'}(${won(r.n)}행)을 보관함에서 뺄까요?`)) return;
+  try { await IDB.del([key]); delete ARCH[key]; if (EDIT === key) { $('archEdit').hidden = true; EDIT = null; } archRender(); setStatus('보관함에서 뺐습니다.'); }
+  catch (e) { showError('보관함에서 빼지 못했습니다', e.message || String(e)); }
+}
 function archRender() {
-  archSlotsRender();
+  archSlotsRender(); histRender();
   {
     const yms = [...new Set(Object.values(ARCH).filter(r => r.ym).map(r => r.ym))].sort().reverse();
     const ok = ym => ARCH[`lots:${ym}`] && ARCH[`ship:${ym}`] && ARCH[`led:${ym}`] && ARCH.order && ARCH.wo;
@@ -693,11 +755,13 @@ function archExtras(ym, book) {
   return { sheets, history: built.history, note: n || h ? `보관함 단가대장 ${n}개월·이전 로트 ${h}개 사용` : '' };
 }
 function computeFromArchive(ym) {
+  if (ym !== ymNow()) stashMonth();
   const b = Archive.buildBook(ARCH, ym);
   if (b.missing.length) { showError('보관함 자료 부족', `${Archive.label(ym)}: ${b.missing.join(', ')}이(가) 없습니다.`); return; }
   for (const k in FILLED) delete FILLED[k];
   $('month').value = Number(ym.slice(5)); MONTH_SET = true;
   renderSlots();
+  ARCH_USE = ym; renderSlots();
   BOOK = { sheets: b.book.sheets, history: b.history, fromArchive: ym };
   FILENAME = `보관함 ${ym}`;
   $('clear').hidden = true;
@@ -706,6 +770,7 @@ function computeFromArchive(ym) {
 $('archAdd').onclick = () => { ATARGET = null; $('archFile').click(); };
 $('archSlots').onclick = e => {
   const p = e.target.closest('[data-apick]'); if (p) { ATARGET = p.dataset.apick; $('archFile').click(); return; }
+  const d = e.target.closest('[data-del]'); if (d) { e.stopPropagation(); archDelete(d.dataset.del); return; }
   const c = e.target.closest('[data-edit]'); if (c) archEditOpen(c.dataset.edit);
 };
 const aslotOf = e => e.target.closest && e.target.closest('[data-aslot]');
@@ -893,7 +958,8 @@ function compute() {
     $('dl').disabled = false;
     setStatus(`${RES.opts.month}월 · 평택 당월 로트 ${RES.lots.length}개(${lotSrc()}) · 전월 생산 출하 ${RES.prev.length}개 · 화성 품목 ${RES.hw.length}개 계산 완료${RES.archNote ? ' · ' + RES.archNote : ''}`);
     if (!BOOK.fromArchive) archAutoSave();
-    render();
+    MONTHS[ym] = { filled: { ...FILLED }, res: RES, book: BOOK, file: FILENAME };
+    render(); histRender();
   } catch (e) {
     console.error(e); RES = null;
     $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true;
