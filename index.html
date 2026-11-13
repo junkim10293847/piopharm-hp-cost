@@ -196,6 +196,20 @@ tr.click:hover td{background:var(--bg)}
 .edit table input[data-c="7"]{min-width:110px}
 .edit table td{padding:3px 6px}
 .edit .hist{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.chip2{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:1px 9px;font-size:12px;cursor:pointer;color:var(--fg);font-family:inherit}
+.chip2:hover{border-color:var(--pt)}
+.chip2.ed{border-color:var(--warn)}
+.chip2 .n{font-family:var(--f-num);color:var(--muted);font-size:11px;margin-left:3px}
+/* 필수 칸 */
+.slot.req{border-color:var(--pt);background:var(--pt-soft);border-left-width:4px}
+.slot.req.filled{border-style:solid}
+.slot.req.bad{border-color:var(--warn);background:var(--warn-soft)}
+.slot.opt{background:var(--surface)}
+.req-b{display:inline-block;font-size:10.5px;font-weight:700;color:#fff;background:var(--pt);border-radius:4px;padding:0 5px;margin-right:2px;line-height:1.6}
+:root[data-theme="dark"] .req-b{color:#0f1514}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .req-b{color:#0f1514}}
+.slot.req .btn{background:var(--surface)}
 /* 오류 창 */
 dialog.err{border:1px solid var(--warn);border-radius:10px;padding:0;max-width:min(460px,calc(100vw - 32px));background:var(--surface);color:var(--fg)}
 dialog.err::backdrop{background:rgba(0,0,0,.35)}
@@ -237,8 +251,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
     <summary>월별 자료 보관함 <span class="sub" id="archSum">불러오는 중…</span></summary>
     <div class="arch-body">
       <div class="arch-act">
-        <button class="btn primary" type="button" id="archAdd">미가공 파일 넣기</button>
-        <span class="hint">여러 파일·여러 달을 한꺼번에 넣어도 됩니다. 시트 종류와 월은 데이터에서 알아내 이 브라우저에 저장합니다.</span>
+        <span class="hint">과거 미가공 파일을 용도별 칸에 넣습니다. 한 칸에 여러 달·여러 파일을 한꺼번에 넣어도 되고, 월은 데이터에서 나눠 저장합니다.</span>
         <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn" type="button" id="archExport">백업 파일 받기</button>
           <button class="btn" type="button" id="archImport">백업 불러오기</button>
@@ -247,7 +260,10 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
         <input type="file" id="archFile" accept=".xlsx,.xlsm,.xls" multiple hidden>
         <input type="file" id="archBackup" accept=".json,application/json" hidden>
       </div>
-      <div class="scroll"><table id="archTbl"></table></div>
+      <div class="slots" id="archSlots"></div>
+      <div class="arch-act" id="archCalc"></div>
+      <div class="arch-act"><button class="btn" type="button" id="archAdd">한꺼번에 넣기(자동 구분)</button><span class="hint">칸을 가리지 않고 넣으면 시트 이름·머리글로 용도를 알아냅니다.</span></div>
+      <details><summary class="meta" style="cursor:pointer;padding:4px 0">월별 현황표</summary><div class="scroll"><table id="archTbl"></table></div></details>
       <p class="meta" id="archMeta"></p>
       <div class="edit" id="archEdit" hidden></div>
       <div class="log" id="archLog" hidden></div>
@@ -285,7 +301,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
 
   <section class="empty" id="empty">
     <h2>필요한 자료</h2>
-    <div class="step"><span class="k">필수 5칸</span><p>평택 로트목록 · 출하대장 · 발주 현황 · 작업지시현황 · 당월 제품 단가 대장. 파일 이름은 상관없고 넣은 칸의 용도로 씁니다.</p></div>
+    <div class="step"><span class="k">필수 5칸 (청록색)</span><p>평택 로트목록 · 출하대장 · 발주 현황 · 작업지시현황 · 당월 제품 단가 대장. 파일 이름은 상관없고 넣은 칸의 용도로 씁니다.</p></div>
     <div class="step"><span class="k">보관함</span><p>위 「월별 자료 보관함」에 지난 달 미가공 파일(로트목록·단가대장 등)을 넣어 두면, 이전에 생산한 로트가 이번 달 출하될 때 생산월 단가대장으로 원가를 채웁니다. FCO 칸을 넣으면 평택 미출고 기말 제품재고액이 나옵니다.</p></div>
     <div class="step"><span class="k">결과</span><p>평택(당월 생산 + 전월 생산 출하)과 화성 매출·재료원가, 미출고 재고, 확인사항. 「검수」 탭에서 품목을 하나씩 넘기며 매칭을 확인할 수 있습니다.</p></div>
     <p class="lock">파일은 이 브라우저 안에서만 읽고 계산합니다. 서버로 전송하지 않습니다. 검수 체크와 저장한 재고는 이 브라우저에만 남습니다.</p>
@@ -484,7 +500,7 @@ function renderSlots() {
   $('slots').innerHTML = SLOTS.map((slot, i) => {
     const f = FILLED[slot.id], sm = slot.month === 'cur' ? m : slot.month === 'prev' ? prevMonth(m) : null;
     const w = B.warn.find(x => x.slot === slot.id);
-    const title = slot.label + (sm ? ` · ${sm}월` : '') + (slot.optional ? ' <span class="no">(선택)</span>' : '');
+    const title = (slot.optional ? '' : '<span class="req-b">필수</span>') + slot.label + (sm ? ` · ${sm}월` : '') + (slot.optional ? ' <span class="no">(선택)</span>' : '');
     let body;
     if (!f) body = `<div class="slot-act"><button class="btn" type="button" data-pick="${slot.id}">파일 선택</button><span class="slot-hint">또는 여기로 끌어다 놓기</span></div>`;
     else {
@@ -493,7 +509,7 @@ function renderSlots() {
         + (names.length > 1 ? `<select data-sheet="${slot.id}" aria-label="쓸 시트">${names.map(n => `<option value="${esc(n)}"${n === f.sheet ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>` : '')
         + (w ? `<div class="slot-warn">이 칸에 맞는 열이 없습니다: ${esc(w.missing.join(', '))}</div>` : '');
     }
-    return `<div class="slot${f ? ' filled' : ''}${w ? ' bad' : ''}" data-slot="${slot.id}">
+    return `<div class="slot${slot.optional ? ' opt' : ' req'}${f ? ' filled' : ''}${w ? ' bad' : ''}" data-slot="${slot.id}">
       <div class="slot-h"><span class="no">${i + 1}</span>${title}<span class="mk">${f ? (w ? '!' : '✓') : ''}</span></div>
       <div class="slot-hint">${esc(slot.hint)}</div>${body}</div>`;
   }).join('');
@@ -553,7 +569,37 @@ async function archLoad() {
   archRender();
 }
 const KINDS = [['lots', '평택 로트목록'], ['ship', '출하대장'], ['led', '제품 단가 대장'], ['fco', 'FCO']];
+const ASLOTS = [
+  { id: 'lots', label: '평택 로트목록', how: '월 = 로트별 생산귀속(예: 7월마감)' },
+  { id: 'ship', label: '출하대장', how: '월 = 출고일자 (여러 달 한 시트 가능)' },
+  { id: 'order', label: '발주 현황', how: '최신본 1개 — 넣으면 덮어씀', latest: true },
+  { id: 'wo', label: '작업지시현황', how: '최신본 1개 — 넣으면 덮어씀', latest: true },
+  { id: 'led', label: '제품 단가 대장', how: '월 = 시트 이름의 마감월 (달마다 시트)' },
+  { id: 'fco', label: 'FCO 수불', how: '월 = 시트 이름의 월 (달마다 시트)' },
+];
+let ATARGET = null;
+function archSlotsRender() {
+  $('archSlots').innerHTML = ASLOTS.map((a, i) => {
+    const recs = Object.values(ARCH).filter(r => r.kind === a.id).sort((x, y) => (x.ym || '') < (y.ym || '') ? 1 : -1);
+    const chips = a.latest ? (ARCH[a.id] ? `<button type="button" class="chip2${ARCH[a.id].edits && ARCH[a.id].edits.length ? ' ed' : ''}" data-edit="${a.id}">최신본 ${(ARCH[a.id].savedAt || '').slice(5, 10).replace('-', '/')} <span class="n">${won(ARCH[a.id].n)}행</span></button>` : '')
+      : recs.map(r => `<button type="button" class="chip2${r.edits && r.edits.length ? ' ed' : ''}" data-edit="${esc(r.key)}" title="${esc(r.src)}">${Number(r.ym.slice(5))}월${r.ym.slice(0, 4) !== String(new Date().getFullYear()) ? `(${r.ym.slice(2, 4)})` : ''}<span class="n">${won(r.n)}</span></button>`).join('');
+    const filled = a.latest ? !!ARCH[a.id] : recs.length > 0;
+    return `<div class="slot${filled ? ' filled' : ''}" data-aslot="${a.id}">
+      <div class="slot-h"><span class="no">${i + 1}</span>${a.label}<span class="mk">${filled ? '✓' : ''}</span></div>
+      <div class="slot-hint">${esc(a.how)}</div>
+      <div class="chips">${chips || '<span class="meta">저장된 달 없음</span>'}</div>
+      <div class="slot-act"><button class="btn" type="button" data-apick="${a.id}">파일 넣기</button><span class="slot-hint">여러 개 끌어다 놓기</span></div></div>`;
+  }).join('');
+}
 function archRender() {
+  archSlotsRender();
+  {
+    const yms = [...new Set(Object.values(ARCH).filter(r => r.ym).map(r => r.ym))].sort().reverse();
+    const ok = ym => ARCH[`lots:${ym}`] && ARCH[`ship:${ym}`] && ARCH[`led:${ym}`] && ARCH.order && ARCH.wo;
+    const r = yms.filter(ok);
+    $('archCalc').innerHTML = r.length ? `<b style="font-size:13px">보관함 자료로 계산</b> ${r.map(ym => `<button class="btn primary sm" type="button" data-calc="${ym}">${Archive.label(ym)}</button>`).join('')}`
+      : `<span class="hint">로트목록·출하대장·단가대장(그 달)과 발주·작업지시 최신본이 모이면 여기서 그 달을 바로 계산할 수 있습니다.</span>`;
+  }
   const recs = Object.values(ARCH);
   const yms = [...new Set(recs.filter(r => r.ym).map(r => r.ym))].sort().reverse();
   $('archSum').textContent = yms.length ? `${yms.length}개월 · ${Archive.label(yms[yms.length - 1])} ~ ${Archive.label(yms[0])}` : '비어 있음 — 미가공 파일을 넣어 주세요';
@@ -567,7 +613,12 @@ function archRender() {
 async function archSave(recs) {
   // 같은 자리(예: 같은 달 로트목록)가 한 번에 여러 개 오면 차례로 합침
   const next = {}, log = [];
-  for (const r of recs) { const m = Archive.merge(next[r.key] || ARCH[r.key], r); next[r.key] = m; log.push({ ...m, n: r.n, src: r.src, kept: m.kept }); }
+  for (const r of recs) {
+    const old = next[r.key] || ARCH[r.key];
+    // 훨씬 작은 자료가 큰 자료를 덮지 않게 (예: 작업용 시트의 일부 표)
+    if (old && r.kind !== 'lots' && r.n < old.n * 0.2) { log.push({ ...r, guard: `기존 ${won(old.n)}행보다 훨씬 작아(${won(r.n)}행) 바꾸지 않음 — 바꾸려면 기존 자료를 지우고 넣으세요` }); continue; }
+    const m = Archive.merge(old, r); next[r.key] = m; log.push({ ...m, n: r.n, src: r.src, kept: m.kept });
+  }
   await IDB.put(Object.values(next));
   Object.assign(ARCH, next);
   archRender();
@@ -579,7 +630,7 @@ function archLog(results) {
   const lines = [];
   results.forEach(({ file, res, saved, err }) => {
     if (err) { lines.push(`<div class="w">✕ ${esc(file)}: ${esc(err)}</div>`); return; }
-    saved.forEach(r => lines.push(`<div class="k">✓ ${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ''} ${won(r.n)}행 저장 <span class="meta">← ${esc(r.src)}</span>${r.kept && r.kept.length ? ` <span class="w">(기존 행 유지: ${esc(r.kept.join(', '))})</span>` : ''}</div>`));
+    saved.forEach(r => lines.push(r.guard ? `<div class="w">! ${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ''}: ${esc(r.guard)} <span class="meta">← ${esc(r.src)}</span></div>` : `<div class="k">✓ ${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ''} ${won(r.n)}행 저장 <span class="meta">← ${esc(r.src)}</span>${r.kept && r.kept.length ? ` <span class="w">(기존 행 유지: ${esc(r.kept.join(', '))})</span>` : ''}</div>`));
     res.skipped.forEach(x => lines.push(`<div class="meta">– ${esc(x.src)}: ${esc(x.reason)}</div>`));
     res.notes.forEach(x => lines.push(`<div class="w">! ${esc(x)}</div>`));
   });
@@ -592,7 +643,7 @@ function archLog(results) {
   $('archLog').innerHTML = lines.join('') || '<div class="meta">저장할 자료가 없었습니다.</div>';
   $('archLog').hidden = false;
 }
-async function archAddFiles(list) {
+async function archAddFiles(list, kind) {
   const files = [...list].filter(f => /\.xls[xm]?$/i.test(f.name));
   if (!files.length) return;
   $('arch').open = true;
@@ -601,7 +652,7 @@ async function archAddFiles(list) {
   for (const f of files) {
     try {
       const wb = await readFile(f);
-      const res = Archive.ingest(XLSX, wb, f.name, new Date(), RULES);
+      const res = Archive.ingest(XLSX, wb, f.name, new Date(), kind ? { ...RULES, forceKind: kind } : RULES);
       const saved = await archSave(res.records);
       NEED.push(...res.needMonth);
       results.push({ file: f.name, res, saved });
@@ -641,8 +692,17 @@ function computeFromArchive(ym) {
   $('clear').hidden = true;
   compute();
 }
-$('archAdd').onclick = () => $('archFile').click();
-$('archFile').onchange = e => { const fs = e.target.files; archAddFiles(fs).finally(() => { e.target.value = ''; }); };
+$('archAdd').onclick = () => { ATARGET = null; $('archFile').click(); };
+$('archSlots').onclick = e => {
+  const p = e.target.closest('[data-apick]'); if (p) { ATARGET = p.dataset.apick; $('archFile').click(); return; }
+  const c = e.target.closest('[data-edit]'); if (c) archEditOpen(c.dataset.edit);
+};
+const aslotOf = e => e.target.closest && e.target.closest('[data-aslot]');
+['dragenter', 'dragover'].forEach(t => $('archSlots').addEventListener(t, e => { const el = aslotOf(e); if (el) { e.preventDefault(); e.stopPropagation(); el.classList.add('over'); } }));
+$('archSlots').addEventListener('dragleave', e => { const el = aslotOf(e); if (el && !el.contains(e.relatedTarget)) el.classList.remove('over'); });
+$('archSlots').addEventListener('drop', e => { const el = aslotOf(e); if (!el) return; e.preventDefault(); e.stopPropagation(); el.classList.remove('over'); archAddFiles(e.dataTransfer.files, el.dataset.aslot); });
+$('archFile').onchange = e => { const fs = e.target.files, k = ATARGET; archAddFiles(fs, k).finally(() => { e.target.value = ''; ATARGET = null; }); };
+$('archCalc').onclick = e => { const b = e.target.closest('[data-calc]'); if (b) computeFromArchive(b.dataset.calc); };
 $('archTbl').onclick = e => { const b = e.target.closest('[data-calc]'); if (b) { computeFromArchive(b.dataset.calc); return; } const c = e.target.closest('[data-edit]'); if (c) archEditOpen(c.dataset.edit); };
 $('archLog').onclick = async e => {
   const s = e.target.closest('[data-needsave]'), d = e.target.closest('[data-needdrop]');

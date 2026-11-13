@@ -72,6 +72,7 @@ const Archive = (() => {
     order: ['매출월', 'LOT', '제품코드', '품목', '구분', '규격', '수주수량', '수주단가', '출고일', '업체명'],
     wo: ['지시번호', '지시일자', '생산라인', '제품로트번호', '지시제품', '제품명', '규격', '지시량', '단위중량'],
   };
+  const FORCE = { lots: '로트목록', ship: '출하대장', order: '발주현황', wo: '작업지시', led: '단가대장', fco: 'FCO' };
   const LOT_HDR = ['제품코드', '로트번호', '제품명', '고객사', '생산구분', '완료수량', '완료단가', '생산귀속월', '비고'];
 
   // 파일 하나 → { records, skipped, needMonth, notes }
@@ -86,7 +87,16 @@ const Archive = (() => {
     const sheets = allSheets.filter(s => s.rows.some(r => (r || []).some(v => v != null && v !== '')));
     const fileM = monthIn(fileName);
     for (const s of sheets) {
-      const k = kindOf(s, fileName, sheets.length === 1);
+      let k = kindOf(s, fileName, sheets.length === 1);
+      if (rules.forceKind) {
+        // 용도별 칸에 넣은 파일: 그 칸의 자료만 저장. 머리글이 그 자료와 맞는 시트만 받음
+        const want = P.SHEET_KINDS.find(x => x.kw === FORCE[rules.forceKind]);
+        const fits = kk => { for (let i = 0; i < Math.min(s.rows.length, 15); i++) { const c = (s.rows[i] || []).map(clean); if (kk.lots ? c.includes('완료수량') && c.some(x => x.startsWith('로트번호')) : kk.need.every(n => c.includes(n))) return true; } return false; };
+        const srcName = `${fileName} · ${s.name.trim() || '(이름 없음)'}`;
+        if (!fits(want)) { out.skipped.push({ src: srcName, reason: `${want.label} 칸의 자료가 아님(머리글이 맞지 않음)${k ? ` — ${k.label} 자료로 보임` : ''}` }); continue; }
+        if (k && k !== want) { out.skipped.push({ src: srcName, reason: `${k.label} 자료로 보여 ${want.label} 칸에 저장하지 않음` }); continue; }
+        k = want;
+      }
       const src = `${fileName} · ${s.name.trim() || '(이름 없음)'}`;
       const sheetM = monthIn(s.name) ?? fileM;
       if (!k) { out.skipped.push({ src, reason: '종류를 알 수 없음' }); continue; }
