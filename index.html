@@ -130,6 +130,34 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
 .method p{margin:8px 0 0}
 .method table.ratio{width:auto;min-width:240px;margin-top:10px;border:1px solid var(--line);border-radius:6px}
 .method table.ratio th,.method table.ratio td{padding:5px 12px}
+/* 검수 */
+.rv{padding:14px 16px;display:flex;flex-direction:column;gap:14px}
+.rv-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.rv-top .prog{font-family:var(--f-num);font-size:12.5px;color:var(--muted)}
+.rv-top select{font:inherit;font-size:12.5px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:6px;padding:4px 6px}
+.rv-nav{margin-left:auto;display:flex;gap:6px}
+.rv-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}
+.rv-head h4{margin:0;font-size:16px}
+.rv-head .code{font-family:var(--f-num);font-size:12.5px;color:var(--muted)}
+.rv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.rv-box{border:1px solid var(--line);border-radius:8px;min-width:0;overflow:hidden}
+.rv-box h5{margin:0;font-size:12px;font-weight:600;padding:7px 10px;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:6px;align-items:center}
+.rv-box h5 .src{margin-left:auto;font-weight:400;color:var(--muted);font-size:11.5px}
+.rv-box table{font-size:12.5px}
+.rv-box th,.rv-box td{padding:5px 10px}
+.rv-box .none{padding:10px;color:var(--muted);font-size:12.5px;margin:0}
+.rv-calc{border:1.5px solid var(--pt);border-radius:8px;padding:10px 12px;font-size:13px;display:flex;flex-direction:column;gap:4px}
+.rv-calc .eq{font-family:var(--f-num);font-size:12.5px;color:var(--muted)}
+.rv-calc .res{font-weight:600}
+.btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.chk{font-size:11px;padding:1px 7px;border-radius:4px;background:var(--pt-soft);color:var(--ok);font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;background:none;padding:5px 10px;font-size:12.5px;cursor:pointer;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--surface)}
+.tools{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+.tools .sp{margin-left:auto}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--bg)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -137,15 +165,14 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
 
 <div class="wrap">
   <header>
-    <h1>화성·평택 매출원가 <span class="ver" title="v1.2 (2026-11-13) 자료별 칸 · v1.1 (2026-11-11) 개별 파일 · v1.0 (2026-10-30) 첫 배포">v1.2 · 2026-11-13</span></h1>
-    <p>ERP 기초 자료를 칸마다 넣으면 당월 출하를 화성·평택으로 나누고 품목별 재료원가(원료·자재)를 계산합니다. <a href="#method" id="methodLink">계산 기준 보기</a></p>
+    <h1>화성·평택 매출원가 <span class="ver" id="ver"></span></h1>
+    <p>ERP 기초 자료를 칸마다 넣으면 당월 출하를 화성·평택으로 나누고 재료원가(원료·자재)와 평택 미출고 재고를 계산합니다. <a href="#method" id="methodLink">계산 기준 보기</a></p>
   </header>
 
   <section class="bar" aria-label="자료와 설정">
     <div class="opts">
       <label for="month">당월 <input id="month" type="number" min="1" max="12" class="num"></label>
       <span class="pm" id="pm"></span>
-      <label for="fx">환율 <input id="fx" type="number" step="1" class="num" disabled></label>
     </div>
     <div class="opts" style="margin-left:auto">
       <button class="btn" id="pickAll" type="button" title="여러 시트가 들어 있는 파일 1개를 넣으면 칸에 자동으로 나눠 넣습니다">통합 파일로 한 번에</button>
@@ -158,11 +185,11 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
   </section>
 
   <section class="empty" id="empty">
-    <h2>필요한 파일</h2>
-    <div class="step"><span class="k">자료 넣기</span><p>위 7개 칸에 ERP에서 받은 파일을 하나씩 넣습니다. 파일 이름은 상관없고, 넣은 칸의 용도로 씁니다. 파일에 시트가 여러 개면 칸에서 쓸 시트를 고르면 됩니다. 통합 파일 1개가 있으면 「통합 파일로 한 번에」로 넣어도 됩니다.</p></div>
-    <div class="step"><span class="k">평택 로트목록</span><p>지금 쓰는 「당월 생산」 시트(제공자료 칸)를 그대로 읽습니다. 「로트목록」 표 형식도 됩니다.</p></div>
-    <div class="step"><span class="k">결과</span><p>평택 = 로트목록 출하 × 평택비율, 화성 = 나머지 출하. 요약·평택 로트별·화성 품목별·확인사항을 엑셀로 내려받습니다.</p></div>
-    <p class="lock">파일은 이 브라우저 안에서만 읽고 계산합니다. 서버로 전송하거나 저장하지 않습니다.</p>
+    <h2>필요한 자료</h2>
+    <div class="step"><span class="k">필수 5칸</span><p>평택 로트목록 · 출하대장 · 발주 현황 · 작업지시현황 · 당월 제품 단가 대장. 파일 이름은 상관없고 넣은 칸의 용도로 씁니다.</p></div>
+    <div class="step"><span class="k">선택 3칸</span><p>전월·전전월 단가 대장은 이전에 생산한 제품이 이번 달에 출하될 때 원가 계산에 씁니다. FCO 수불을 넣으면 평택 미출고 기말 제품재고액이 나옵니다.</p></div>
+    <div class="step"><span class="k">결과</span><p>평택(당월 생산 + 전월 생산 출하)과 화성 매출·재료원가, 미출고 재고, 확인사항. 「검수」 탭에서 품목을 하나씩 넘기며 매칭을 확인할 수 있습니다.</p></div>
+    <p class="lock">파일은 이 브라우저 안에서만 읽고 계산합니다. 서버로 전송하지 않습니다. 검수 체크와 저장한 재고는 이 브라우저에만 남습니다.</p>
   </section>
 
   <div id="result" hidden>
@@ -172,6 +199,7 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
         <div class="legend">
           <div class="lg"><span class="lbl"><i class="dot" style="background:var(--pt)"></i>평택</span><span class="v num" id="pVal"></span><span class="s num" id="pSub"></span></div>
           <div class="lg"><span class="lbl"><i class="dot" style="background:var(--hs)"></i>화성</span><span class="v num" id="hVal"></span><span class="s num" id="hSub"></span></div>
+          <div class="lg"><span class="lbl">평택 미출고 재고</span><span class="v num" id="sVal"></span><span class="s" id="sSub"></span></div>
         </div>
       </div>
       <div class="track" role="img" id="track"><div id="barP" style="background:var(--pt)"></div><div id="barH" style="background:var(--hs)"></div></div>
@@ -183,13 +211,16 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
       <p class="note" id="sumNote"></p>
     </section>
 
-    <section class="card" style="margin-top:20px">
+    <section class="card" style="margin-top:20px" id="detail">
       <div class="tabs" role="tablist">
-        <button class="tab" role="tab" id="tab-pt" aria-selected="true" aria-controls="pane">평택 로트별<span class="c" id="cPt"></span></button>
+        <button class="tab" role="tab" id="tab-rv" aria-selected="true" aria-controls="pane">검수<span class="c" id="cRv"></span></button>
+        <button class="tab" role="tab" id="tab-pt" aria-selected="false" aria-controls="pane">평택 당월 로트<span class="c" id="cPt"></span></button>
+        <button class="tab" role="tab" id="tab-pv" aria-selected="false" aria-controls="pane">평택 전월 생산<span class="c" id="cPv"></span></button>
+        <button class="tab" role="tab" id="tab-st" aria-selected="false" aria-controls="pane">미출고 재고<span class="c" id="cSt"></span></button>
         <button class="tab" role="tab" id="tab-hs" aria-selected="false" aria-controls="pane">화성 품목별<span class="c" id="cHs"></span></button>
         <button class="tab" role="tab" id="tab-ck" aria-selected="false" aria-controls="pane">확인사항<span class="c" id="cCk"></span></button>
       </div>
-      <div class="pane scroll" id="pane" role="tabpanel"></div>
+      <div id="paneWrap"><div class="pane scroll" id="pane" role="tabpanel"></div></div>
       <p class="note" id="paneNote"></p>
     </section>
   </div>
@@ -201,62 +232,48 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
         <h4>매출 구분</h4>
         <dl>
           <dt><span class="tag pt">평택</span></dt>
-          <dd>평택 로트목록 로트의 출하금액 × 평택비율</dd>
+          <dd>① 로트목록 로트의 출하금액 × 평택비율 + ② 로트목록에 없는 평택 출하(전월 이전 생산)</dd>
           <dt><span class="tag hs">화성</span></dt>
-          <dd>출하대장 전체 − 평택 매출<br><span class="muted">= 로트목록에 없는 출하 + 평택 로트의 화성분(1 − 평택비율)</span></dd>
+          <dd>출하대장 전체 − 평택 매출</dd>
         </dl>
         <div class="scroll"><table class="ratio">
-          <thead><tr><th class="t">생산구분</th><th>평택</th><th>화성</th></tr></thead>
+          <thead><tr><th class="t">생산공장 / 포장공장</th><th>평택</th><th>화성</th></tr></thead>
           <tbody>
-            <tr><td class="t">평택</td><td class="num">100%</td><td class="num">0%</td></tr>
-            <tr><td class="t">화성포장</td><td class="num">80%</td><td class="num">20%</td></tr>
-            <tr><td class="t">멀티연질</td><td class="num">60%</td><td class="num">40%</td></tr>
-            <tr><td class="t">정제화성</td><td class="num">20%</td><td class="num">80%</td></tr>
-            <tr><td class="t">화성</td><td class="num">0%</td><td class="num">100%</td></tr>
+            <tr><td class="t">평택 / 평택</td><td class="num">100%</td><td class="num">0%</td></tr>
+            <tr><td class="t">평택 / 화성 (화성포장)</td><td class="num">80%</td><td class="num">20%</td></tr>
           </tbody>
         </table></div>
-        <p class="muted">출하금액은 출하대장 공급가액이고, 로트는 제품코드와 로트번호를 함께 써서 찾습니다.</p>
+        <p class="muted">로트는 항상 제품코드와 로트번호를 함께 써서 찾습니다. 같은 로트번호(G, E, 1726C003 등)를 여러 제품이 써도 고치지 않아도 됩니다.</p>
       </section>
-
       <section>
-        <h4>재료원가 = 원료 + 자재</h4>
-        <ul>
-          <li><b>원료</b>: 제품 단가대장에서 반제품(자재코드 3…) 금액 + 주정(4C00000149)</li>
-          <li><b>자재</b>: 제품 제조금액 합계 − 원료</li>
-          <li>단가대장은 품목코드가 1…(제품)인 행만 씁니다.</li>
-        </ul>
-      </section>
-
-      <section>
-        <h4><span class="tag pt">평택</span> 로트별 원가</h4>
+        <h4><span class="tag pt">평택</span> 당월 생산 원가</h4>
         <ol>
-          <li><b>원가월</b>: 로트 제조월(자재투입현황)의 단가대장. 없으면 그다음 달 대장</li>
-          <li><b>배분</b>: 같은 제품·같은 원가월 로트끼리 완료수량 비율로 제품 원가를 나눔</li>
-          <li><b>로트 원가</b> = 제품 원가 × 배분비율 × 평택비율 × 보정계수</li>
-          <li><b>수주</b>: 발주현황에서 매출 월이 당월인 행만 사용. 제품코드가 다르면 로트번호로만 찾고 확인사항에 표시</li>
-          <li><b>조정비율</b> = 생산중량을 규격으로 환산한 set 수량 ÷ 수주수량 → 원료원가·부자재원가</li>
-          <li><b>수율</b> = 생산중량 ÷ 투입중량 (같은 투입번호는 한 번만 합산)</li>
+          <li><b>1개당 원가</b> = 당월 단가대장 제품 제조금액 ÷ 같은 제품 로트들의 생산수량 합 (생산수량 = 완료수량과 출하량 중 큰 값)</li>
+          <li><b>재료원가</b> = 출하량 × 1개당 원가 × 평택비율. 출하되지 않은 수량은 원가에 넣지 않고 잔량으로 남깁니다</li>
+          <li><b>원료</b> = 반제품(3…) + 주정(4C00000149), <b>자재</b> = 나머지</li>
+          <li>당월 단가대장에 없는 로트가 출하되면 이전 달 대장의 kg당 원가 × 출하중량</li>
         </ol>
       </section>
-
+      <section>
+        <h4><span class="tag pt">평택</span> 전월 생산 출하</h4>
+        <ul>
+          <li>로트목록에 없지만 작업지시번호가 10-30이거나 출하 현장이 비오팜2공장인 출하</li>
+          <li><b>원가</b> = 출하중량 × (생산월 단가대장 제조금액 ÷ 생산중량). 전월·전전월 단가 대장 칸에서 가장 가까운 달을 씁니다</li>
+        </ul>
+      </section>
       <section>
         <h4><span class="tag hs">화성</span> 품목별 원가</h4>
         <ul>
-          <li><b>원가</b> = 출하중량 × (단가대장 제품 제조금액 ÷ 생산중량)</li>
-          <li><b>원가월</b>: 당월 대장, 없으면 가장 가까운 이전 달</li>
-          <li>원료·자재는 그 제품 단가대장의 원료 비율로 나눕니다.</li>
-          <li>제품이 아니거나(원료·상품 판매) 단가대장에 없는 품목은 원가를 비우고 확인사항에 표시합니다.</li>
+          <li><b>원가</b> = 출하중량 × (단가대장 제품 제조금액 ÷ 생산중량), 당월 대장이 없으면 가장 가까운 이전 달</li>
+          <li>제품이 아니거나(원료·상품 판매) 단가대장에 없는 품목은 원가를 비우고 확인사항에 표시합니다</li>
         </ul>
-        <p class="muted">평택 24개 품목에 같은 방식을 적용하면 로트 방식과 0.02% 이내로 일치합니다(2026년 9월 자료).</p>
       </section>
-
       <section>
-        <h4>자동으로 읽는 값</h4>
+        <h4>미출고 재고</h4>
         <ul>
-          <li><b>당월</b>: 출하대장 시트 이름의 월(예: 9월 출하대장)</li>
-          <li><b>외화 수주·환율</b>: 「당월 생산」 단가 수식 끝의 ×환율(예: *1360)</li>
-          <li><b>부분 출하 보정계수</b>: 생산중량 수식 끝에서 곱하는 칸(예: *AX63)</li>
-          <li><b>규격</b>: 작업지시현황 규격 문자열(예: 1,000mg x 30연질캡슐 x 3ea/set)</li>
+          <li>FCO 칸이 있으면 FCO 제품(1…)의 현재고·현재고금액. 공장은 작업지시번호(10-30 평택, 10-10 화성)로 구분</li>
+          <li>FCO가 없으면 평택 로트목록의 당월 생산 잔량 × 1개당 원가(재료비)로 추정</li>
+          <li>단가대장은 재료비, FCO는 가공비 포함 원가로 보여 두 금액은 다릅니다</li>
         </ul>
       </section>
     </div>
@@ -284,7 +301,7 @@ const pct = (v, d = 1) => v == null || !isFinite(v) ? '–' : (v * 100).toFixed(
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const div = (a, b) => b ? a / b : null;
 
-let BOOK = null, RES = null, FILENAME = '', TAB = 'pt';
+let BOOK = null, RES = null, FILENAME = '', TAB = 'rv';
 
 // ---------- 자료 칸 ----------
 function setStatus(msg, err) { $('status').textContent = msg || ''; $('status').classList.toggle('err', !!err); }
@@ -336,7 +353,6 @@ $('month').oninput = $('month').onchange = () => {
   if (!(v >= 1 && v <= 12) || v === SHOWN_MONTH) return;
   MONTH_SET = true; refresh();
 };
-$('fx').onchange = compute;
 
 function renderSlots() {
   const m = curMonth(); SHOWN_MONTH = m;
@@ -351,7 +367,7 @@ function renderSlots() {
     else {
       const names = f.wb.SheetNames;
       body = `<div class="slot-act"><span class="slot-file" title="${esc(f.file)}">${esc(f.file)}</span><button class="rm" type="button" data-rm="${slot.id}" aria-label="${esc(slot.label)} 비우기">×</button></div>`
-        + (names.length > 1 ? `<select data-sheet="${slot.id}" aria-label="쓸 시트">${names.map(n => `<option${n === f.sheet ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>` : '')
+        + (names.length > 1 ? `<select data-sheet="${slot.id}" aria-label="쓸 시트">${names.map(n => `<option value="${esc(n)}"${n === f.sheet ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>` : '')
         + (w ? `<div class="slot-warn">이 칸에 맞는 열이 없습니다: ${esc(w.missing.join(', '))}</div>` : '');
     }
     return `<div class="slot${f ? ' filled' : ''}${w ? ' bad' : ''}" data-slot="${slot.id}">
@@ -382,7 +398,7 @@ function refresh(err) {
   FILENAME = files.join(', ');
   $('clear').hidden = !files.length;
   if (!B.missing.length && !B.warn.length) { BOOK = B; compute(); if (err) setStatus(err, true); return; }
-  $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true; $('fx').disabled = true; $('fx').value = '';
+  $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true;
   setStatus(err || (B.warn.length ? '빨간 표시 칸을 확인해 주세요. 다른 시트를 고르거나 맞는 파일로 바꾸면 됩니다.'
     : files.length ? '남은 칸: ' + B.missing.join(', ') : ''), !!err || !!B.warn.length);
 }
@@ -395,11 +411,10 @@ function lotSrc() {
 function compute() {
   if (!BOOK) return;
   try {
-    const fx = Number($('fx').value) || undefined;
-    RES = Engine.run(BOOK, { month: curMonth(), fx });
-    $('fx').value = RES.opts.fx; $('fx').disabled = false;
+    RES = Engine.run(BOOK, { month: curMonth() });
+    buildItems();
     $('dl').disabled = false;
-    setStatus(`${RES.opts.month}월 · 평택 로트 ${RES.lots.length}개(${lotSrc()}) · 화성 품목 ${RES.hw.length}개 계산 완료`);
+    setStatus(`${RES.opts.month}월 · 평택 당월 로트 ${RES.lots.length}개(${lotSrc()}) · 전월 생산 출하 ${RES.prev.length}개 · 화성 품목 ${RES.hw.length}개 계산 완료`);
     render();
   } catch (e) {
     console.error(e); RES = null;
@@ -409,6 +424,16 @@ function compute() {
 }
 
 const totals = Report.totals, flagsOf = Report.flagsOf;
+$('ver').textContent = `${Report.VERSION} · ${Report.VERSION_DATE}`;
+$('ver').title = Report.HISTORY.join('\n');
+
+// ---------- 저장소 (이 브라우저에만) ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+};
+const ptStock = () => RES.stock.rows.filter(r => r.공장 === '평택');
+const stockTotal = rows => rows.reduce((a, r) => a + (r.현재고금액 ?? r.재료비추정 ?? 0), 0);
 
 // ---------- 화면 ----------
 function render() {
@@ -418,53 +443,182 @@ function render() {
   $('tVal').textContent = won(R.totalShip) + '원';
   $('pVal').textContent = eok(S.P.매출); $('pSub').textContent = pct(div(S.P.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.P.원료 + S.P.자재, S.P.매출));
   $('hVal').textContent = eok(S.H.매출); $('hSub').textContent = pct(div(S.H.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.H.원료 + S.H.자재, S.H.매출));
+  const pts = ptStock();
+  $('sVal').textContent = eok(stockTotal(pts));
+  $('sSub').textContent = R.stock.hasFco ? `FCO · ${pts.length}개 제품` : `추정(재료비) · FCO 칸을 넣으면 실제 금액`;
   $('barP').style.width = (div(S.P.매출, R.totalShip) * 100 || 0) + '%';
   $('barH').style.width = (div(S.H.매출, R.totalShip) * 100 || 0) + '%';
   $('track').setAttribute('aria-label', `평택 ${pct(div(S.P.매출, R.totalShip))}, 화성 ${pct(div(S.H.매출, R.totalShip))}`);
-
-  const row = (label, cls, x, sub) => `<tr${cls === 'sum' ? ' class="sum"' : ''}><td class="t">${label}</td>
+  const row = (label, cls, x) => `<tr${cls ? ` class="${cls}"` : ''}><td class="t">${label}</td>
     <td class="num">${won(x.매출)}</td><td class="num">${won(x.원료)}</td><td class="num">${won(x.자재)}</td>
-    <td class="num">${won(x.원료 + x.자재)}</td><td class="num">${pct(div(x.원료, x.매출))}</td><td class="num">${pct(div(x.자재, x.매출))}</td>
-    <td class="num">${pct(div(x.원료 + x.자재, x.매출))}</td><td class="num">${pct(div(x.매출, R.totalShip))}</td></tr>`;
-  $('sumTbl').innerHTML = `<thead><tr><th class="t">구분</th><th>매출</th><th>원료</th><th>자재</th><th>재료원가</th><th>원료율</th><th>자재율</th><th>재료원가율</th><th>매출 비중</th></tr></thead><tbody>
+    <td class="num">${won(x.원료 + x.자재)}</td><td class="num">${pct(div(x.원료 + x.자재, x.매출))}</td><td class="num">${pct(div(x.매출, R.totalShip))}</td></tr>`;
+  $('sumTbl').innerHTML = `<thead><tr><th class="t">구분</th><th>매출</th><th>원료</th><th>자재</th><th>재료원가</th><th>재료원가율</th><th>매출 비중</th></tr></thead><tbody>
     ${row('<span class="tag pt">평택</span>', '', S.P)}
+    ${row('<span class="muted">　└ 당월 생산</span>', '', S.P당월)}
+    ${row('<span class="muted">　└ 전월 이전 생산</span>', '', S.P전월)}
     ${row('<span class="tag hs">화성</span>', '', S.H)}
     ${row('<span class="muted">　└ 화성 출하 품목</span>', '', S.Hu)}
     ${row('<span class="muted">　└ 평택 로트의 화성분</span>', '', S.Hl)}
     ${row('합계', 'sum', S.T)}</tbody>`;
-  $('sumNote').textContent = `원료 = 반제품+주정, 자재 = 제품원가 − 원료. 평택은 로트별 단가대장 원가, 화성은 출하중량 × kg당 제조원가로 계산합니다. 원가를 찾지 못한 화성 출하 ${won(R.Hu.미확인매출)}원은 매출에만 들어가고 원가에는 빠집니다.`;
-
-  const fl = flagsOf(R);
-  $('cPt').textContent = R.lots.length; $('cHs').textContent = R.hw.length; $('cCk').textContent = fl.length;
+  const miss = [R.미확인.평택 ? `평택 ${won(R.미확인.평택)}원` : '', R.Hu.미확인매출 ? `화성 ${won(R.Hu.미확인매출)}원` : ''].filter(Boolean).join(', ');
+  $('sumNote').textContent = `원료 = 반제품+주정, 자재 = 나머지. 단가대장 기준 재료비입니다.${miss ? ` 원가를 찾지 못한 매출(${miss})은 매출에만 들어갑니다.` : ''}`;
+  $('cPt').textContent = R.lots.length; $('cPv').textContent = R.prev.length; $('cHs').textContent = R.hw.length;
+  $('cSt').textContent = R.stock.rows.length; $('cCk').textContent = flagsOf(R).length;
   renderPane();
 }
 
+let ST_FILTER = 'pt';
 function renderPane() {
   const R = RES; if (!R) return;
-  ['pt', 'hs', 'ck'].forEach(t => $('tab-' + t).setAttribute('aria-selected', String(t === TAB)));
-  let h = '', note = '';
+  ['rv', 'pt', 'pv', 'st', 'hs', 'ck'].forEach(t => $('tab-' + t).setAttribute('aria-selected', String(t === TAB)));
+  const flagsHtml = fs => fs.map(f => `<span class="flag">${esc(f)}</span>`).join(' ');
+  const chk = id => isChecked(id) ? ' <span class="chk">확인</span>' : '';
+  let h = '', note = '', tools = '';
+  if (TAB === 'rv') { renderReview(); return; }
   if (TAB === 'pt') {
-    h = `<table><thead><tr><th class="t">구분</th><th class="t">로트번호</th><th class="t">제품명</th><th class="t">고객사</th><th class="t">생산구분</th><th>평택비율</th><th>매출(평택분)</th><th>원료</th><th>자재</th><th>재료원가율</th><th>수율</th><th>원가월</th><th class="t">확인</th></tr></thead><tbody>` +
-      R.lots.map(o => `<tr><td class="t">${o.구분}</td><td class="t num">${esc(o.로트번호)}</td><td class="t name" title="${esc(o.제품명)}">${esc(o.제품명)}</td><td class="t name">${esc(o.고객사)}</td><td class="t">${esc(o.생산구분)}</td>
-        <td class="num">${pct(o.K, 0)}</td><td class="num">${won(o.X)}</td><td class="num">${won(o.AD)}</td><td class="num">${won(o.AE)}</td><td class="num">${pct(o.AI)}</td><td class="num">${pct(o.AL)}</td><td class="num">${o.CM ?? '–'}</td>
-        <td class="t">${o.flags.map(f => `<span class="flag">${esc(f)}</span>`).join(' ')}</td></tr>`).join('') + '</tbody></table>';
-    note = '같은 제품·같은 원가월 로트끼리는 완료수량 비율로 원가를 나눕니다. 엑셀 파일에는 수주·규격·조정비율 등 전체 열이 들어갑니다.';
+    h = `<table><thead><tr><th class="t">로트번호</th><th class="t">제품명</th><th class="t">생산구분</th><th>완료수량</th><th>출하량</th><th>평택 매출</th><th>원료</th><th>자재</th><th>재료원가율</th><th>잔량</th><th class="t">원가</th><th class="t">확인</th></tr></thead><tbody>` +
+      R.lots.map(o => `<tr class="click" data-go="L:${esc(o.key)}"><td class="t num">${esc(o.로트번호)}${chk('L:' + o.key)}</td><td class="t name" title="${esc(o.제품명)}">${esc(o.제품명)}</td><td class="t">${esc(o.생산구분)}</td>
+        <td class="num">${won(o.완료수량)}</td><td class="num">${won(o.shipQty)}</td><td class="num">${won(o.매출)}</td><td class="num">${won(o.원료)}</td><td class="num">${won(o.자재)}</td><td class="num">${pct(o.원가율)}</td><td class="num">${o.잔량 ? won(o.잔량) : '–'}</td>
+        <td class="t muted">${esc(o.원가방식)}</td><td class="t">${flagsHtml(o.flags)}</td></tr>`).join('') + '</tbody></table>';
+    note = '행을 누르면 검수 화면에서 그 로트의 매칭을 볼 수 있습니다. 같은 제품의 당월 로트끼리는 생산수량 비율로 원가를 나눕니다.';
+  } else if (TAB === 'pv') {
+    h = R.prev.length ? `<table><thead><tr><th class="t">로트번호</th><th class="t">제품명</th><th class="t">평택 근거</th><th class="t">작업지시일</th><th>출하량</th><th>출하중량</th><th>매출</th><th>원가월</th><th>원료</th><th>자재</th><th>재료원가율</th><th class="t">확인</th></tr></thead><tbody>` +
+      R.prev.map(o => `<tr class="click" data-go="P:${esc(o.key)}"><td class="t num">${esc(o.로트번호)}${chk('P:' + o.key)}</td><td class="t name" title="${esc(o.제품명)}">${esc(o.제품명)}</td><td class="t muted">${esc(o.근거)}</td><td class="t num">${esc(o.지시일자)}</td>
+        <td class="num">${won(o.shipQty)}</td><td class="num">${won(o.shipW)}</td><td class="num">${won(o.매출)}</td><td class="num">${o.원가월 ?? '–'}</td><td class="num">${won(o.원료)}</td><td class="num">${won(o.자재)}</td><td class="num">${pct(o.원가율)}</td>
+        <td class="t">${flagsHtml(o.flags)}</td></tr>`).join('') + '</tbody></table>' : '<p style="padding:16px;margin:0" class="muted">로트목록에 없는 평택 출하가 없습니다.</p>';
+    note = '로트목록에 없지만 작업지시번호 10-30 또는 출하 현장 비오팜2공장인 출하입니다. 생산월 단가 대장이 없으면 원가가 비어 있으니 전월·전전월 칸에 넣어 주세요.';
+  } else if (TAB === 'st') {
+    const rows = R.stock.rows.filter(r => ST_FILTER === 'all' || (ST_FILTER === 'pt' ? r.공장 === '평택' : r.공장 !== '평택'));
+    const saved = store.get('hpcost.stock', {});
+    tools = `<div class="tools"><span class="seg" role="group" aria-label="공장">${[['pt', '평택'], ['etc', '화성·기타'], ['all', '전체']].map(([k, l]) => `<button type="button" data-st="${k}" aria-pressed="${ST_FILTER === k}">${l}</button>`).join('')}</span>
+      <span class="muted" style="font-size:12.5px">${rows.length}개 · ${won(stockTotal(rows))}원 ${R.stock.hasFco ? '(FCO)' : '(재료비 추정)'}</span>
+      <span class="sp"></span>${Object.keys(saved).length ? `<span class="muted" style="font-size:12px">저장: ${Object.entries(saved).sort().map(([m, v]) => `${m} ${eok(v.total)}`).join(' · ')}</span>` : ''}
+      <button class="btn" type="button" id="saveStock">${R.opts.month}월 평택 재고 저장</button></div>`;
+    h = rows.length ? `<table><thead><tr><th class="t">공장</th><th class="t">제품코드</th><th class="t">제품명</th><th class="t">구분</th><th>전재고</th><th>입고</th><th>출고</th><th>현재고</th><th>현재고금액</th><th>재료비 추정</th><th class="t">당월 잔량 로트</th><th class="t">확인</th></tr></thead><tbody>` +
+      rows.map(r => `<tr class="click" data-go="S:${esc(r.제품코드)}"><td class="t">${r.공장 === '평택' ? '<span class="tag pt">평택</span>' : r.공장 === '화성' ? '<span class="tag hs">화성</span>' : esc(r.공장)}</td><td class="t num">${esc(r.제품코드)}${chk('S:' + r.제품코드)}</td><td class="t name" title="${esc(r.제품명)}">${esc(r.제품명)}</td><td class="t">${esc(r.구분)}</td>
+        <td class="num">${won(r.전재고)}</td><td class="num">${won(r.입고)}</td><td class="num">${won(r.출고)}</td><td class="num">${won(r.현재고)}</td><td class="num">${won(r.현재고금액)}</td><td class="num">${won(r.재료비추정)}</td><td class="t muted">${esc(r.잔량로트)}</td>
+        <td class="t">${flagsHtml(r.flags)}</td></tr>`).join('') + '</tbody></table>' : '<p style="padding:16px;margin:0" class="muted">해당하는 미출고 재고가 없습니다.</p>';
+    note = R.stock.hasFco ? 'FCO 현재고가 남은 제품만 보입니다(미출고). 공장은 작업지시번호로 구분합니다. 「재고 저장」을 누르면 이 브라우저에 월별로 남습니다.'
+      : 'FCO 칸이 비어 있어 평택 로트목록의 당월 생산 잔량을 단가대장 재료비로 추정했습니다.';
   } else if (TAB === 'hs') {
     h = `<table><thead><tr><th class="t">품목코드</th><th class="t">제품명</th><th class="t">거래처</th><th>출하중량(kg)</th><th>매출</th><th>kg당 원가</th><th>원료</th><th>자재</th><th>재료원가율</th><th>원가월</th><th class="t">확인</th></tr></thead><tbody>` +
       R.hw.map(g => `<tr><td class="t num">${esc(g.품목코드)}</td><td class="t name" title="${esc(g.제품명)}">${esc(g.제품명)}</td><td class="t name" title="${esc(g.거래처)}">${esc(g.거래처)}</td>
         <td class="num">${won(g.중량)}</td><td class="num">${won(g.매출)}</td><td class="num">${won(g.kg당원가)}</td><td class="num">${won(g.원료)}</td><td class="num">${won(g.자재)}</td><td class="num">${pct(g.원가율)}</td><td class="num">${g.원가월 ?? '–'}</td>
         <td class="t">${g.flag ? `<span class="flag">${esc(g.flag)}</span>` : ''}</td></tr>`).join('') + '</tbody></table>';
-    note = '평택 로트목록에 없는 출하를 품목별로 묶었습니다. kg당 원가는 당월(없으면 가장 가까운 이전 달) 단가대장의 제품 제조금액 ÷ 생산중량입니다.';
+    note = '평택에 들어가지 않은 출하를 품목별로 묶었습니다. kg당 원가는 당월(없으면 가장 가까운 이전 달) 단가대장의 제조금액 ÷ 생산중량입니다.';
   } else {
     const fl = flagsOf(R);
-    h = fl.length ? `<table><thead><tr><th class="t">구분</th><th class="t">코드</th><th class="t">로트</th><th class="t">제품명</th><th class="t">내용</th><th>금액</th></tr></thead><tbody>` +
+    h = fl.length ? `<table><thead><tr><th class="t">구분</th><th class="t">코드</th><th class="t">로트·공장</th><th class="t">제품명</th><th class="t">내용</th><th>금액</th></tr></thead><tbody>` +
       fl.map(f => `<tr><td class="t">${f.구분}</td><td class="t num">${esc(f.코드)}</td><td class="t num">${esc(f.대상)}</td><td class="t name">${esc(f.이름)}</td><td class="t"><span class="flag">${esc(f.내용)}</span></td><td class="num">${won(f.금액)}</td></tr>`).join('') + '</tbody></table>'
       : '<p style="padding:16px;margin:0" class="muted">확인할 항목이 없습니다.</p>';
-    note = '발주 제품코드 상이: 발주현황과 출하대장의 제품코드가 다른 로트입니다. 생산-수주 수량차이: 생산중량으로 환산한 수량이 수주수량과 1% 넘게 차이 나는 로트입니다.';
+    note = '출하 없음·선매출 의심, 생산월 단가대장 없음, 출하량이 완료수량보다 큰 로트 등을 모았습니다.';
   }
-  $('pane').innerHTML = h; $('paneNote').textContent = note;
+  $('paneWrap').innerHTML = tools + `<div class="pane scroll" id="pane" role="tabpanel">${h}</div>`;
+  $('paneNote').textContent = note;
 }
-['pt', 'hs', 'ck'].forEach(t => $('tab-' + t).onclick = () => { TAB = t; renderPane(); });
+['rv', 'pt', 'pv', 'st', 'hs', 'ck'].forEach(t => $('tab-' + t).onclick = () => { TAB = t; renderPane(); });
+$('paneWrap').onclick = e => {
+  const st = e.target.closest('[data-st]'); if (st) { ST_FILTER = st.dataset.st; renderPane(); return; }
+  if (e.target.id === 'saveStock') {
+    const all = store.get('hpcost.stock', {}); const rows = ptStock();
+    all[`${RES.opts.month}월`] = { total: stockTotal(rows), fco: RES.stock.hasFco, savedAt: new Date().toISOString(),
+      rows: rows.map(r => ({ 제품코드: r.제품코드, 제품명: r.제품명, 구분: r.구분, 현재고: r.현재고, 현재고금액: r.현재고금액, 재료비추정: r.재료비추정 })) };
+    setStatus(store.set('hpcost.stock', all) ? `${RES.opts.month}월 평택 재고를 이 브라우저에 저장했습니다.` : '이 브라우저에서는 저장할 수 없습니다.', false);
+    renderPane(); return;
+  }
+  const tr = e.target.closest('[data-go]'); if (tr) { const i = ITEMS.findIndex(x => x.id === tr.dataset.go); if (i >= 0) { RV = i; RV_FILTER = 'all'; TAB = 'rv'; renderPane(); $('detail').scrollIntoView({ block: 'start' }); } }
+};
+
+// ---------- 검수 (하나씩 보기) ----------
+let ITEMS = [], RV = 0, RV_FILTER = 'all';
+const ckKey = () => `hpcost.check.${RES.opts.month}`;
+const isChecked = id => !!(store.get(ckKey(), {})[id]);
+function buildItems() {
+  ITEMS = [
+    ...RES.lots.map(o => ({ id: 'L:' + o.key, kind: '평택 당월 로트', o })),
+    ...RES.prev.map(o => ({ id: 'P:' + o.key, kind: '평택 전월 생산', o })),
+    ...RES.stock.rows.filter(r => r.공장 === '평택').map(r => ({ id: 'S:' + r.제품코드, kind: '평택 미출고 재고', o: r })),
+  ];
+  RV = 0;
+}
+const flt = () => ITEMS.map((x, i) => i).filter(i => RV_FILTER === 'all' || (RV_FILTER === 'flag' ? (ITEMS[i].o.flags || []).length : RV_FILTER === 'todo' ? !isChecked(ITEMS[i].id) : ITEMS[i].kind === RV_FILTER));
+function box(title, src, rows, cols) {
+  const body = rows.length ? `<div class="scroll"><table><thead><tr>${cols.map(c => `<th class="${c[2] ? '' : 't'}">${c[0]}</th>`).join('')}</tr></thead><tbody>` +
+    rows.map(r => `<tr>${cols.map(c => `<td class="${c[2] ? 'num' : 't'}">${c[2] ? won(r[c[1]]) : esc(r[c[1]])}</td>`).join('')}</tr>`).join('') + '</tbody></table></div>'
+    : '<p class="none">매칭되는 행 없음</p>';
+  return `<div class="rv-box"><h5>${title}<span class="src">${esc(src || '')}</span></h5>${body}</div>`;
+}
+const kv = (title, src, pairs) => `<div class="rv-box"><h5>${title}<span class="src">${esc(src || '')}</span></h5><table><tbody>${pairs.map(([k, v, n]) => `<tr><td class="t muted">${k}</td><td class="${n ? 'num' : 't'}">${n ? won(v) : esc(v ?? '–')}</td></tr>`).join('')}</tbody></table></div>`;
+function ledBox(c, title) {
+  if (!c) return kv(title || '제품 단가 대장', '', [['매칭', '해당 제품 없음']]);
+  return kv(title || `제품 단가 대장 (${c.m}월)`, c.시트, [['품목코드', c.p], ['품목명', c.name], ['생산중량(kg)', c.pw, 1], ['제조금액(재료비)', c.제조금액, 1], ['그중 원료(반제품+주정)', c.원료, 1], ['자재 행 수', c.행수 + '행']]);
+}
+function renderReview() {
+  const idx = flt();
+  if (!ITEMS.length) { $('paneWrap').innerHTML = '<p style="padding:16px" class="muted">검수할 항목이 없습니다.</p>'; return; }
+  if (!idx.includes(RV)) RV = idx.length ? idx[0] : RV;
+  const pos = idx.indexOf(RV), it = ITEMS[RV], o = it.o, done = Object.keys(store.get(ckKey(), {})).filter(k => ITEMS.some(x => x.id === k)).length;
+  const R = RES;
+  const kinds = [['all', '전체'], ['flag', '확인사항 있는 것'], ['todo', '아직 확인 안 한 것'], ['평택 당월 로트', '평택 당월 로트'], ['평택 전월 생산', '평택 전월 생산'], ['평택 미출고 재고', '평택 미출고 재고']];
+  let h = `<div class="rv"><div class="rv-top">
+    <select id="rvF" aria-label="검수 범위">${kinds.map(([k, l]) => `<option value="${esc(k)}"${RV_FILTER === k ? ' selected' : ''}>${l}</option>`).join('')}</select>
+    <span class="prog">${idx.length ? pos + 1 : 0} / ${idx.length} · 확인 ${done} / ${ITEMS.length}</span>
+    <span class="rv-nav"><button class="btn" type="button" id="rvPrev" ${pos <= 0 ? 'disabled' : ''}>◀ 이전</button>
+    <button class="btn ${isChecked(it.id) ? 'ok' : ''}" type="button" id="rvCheck">${isChecked(it.id) ? '✓ 확인함' : '확인'}</button>
+    <button class="btn primary" type="button" id="rvNext" ${pos >= idx.length - 1 ? 'disabled' : ''}>다음 ▶</button></span></div>`;
+  const shCols = [['출하번호', '출하번호'], ['출고일자', '출고일자'], ['거래처', '매출업체'], ['현장', '현장명칭'], ['출하량', 'qty', 1], ['중량', 'w', 1], ['공급가액', 'amt', 1]];
+  const odCols = [['매출월', '월'], ['LOT', 'LOT'], ['제품코드', '제품코드'], ['구분', '구분'], ['수주수량', '수주수량', 1], ['수주단가', '수주단가', 1]];
+  const woCols = [['지시번호', '지시번호'], ['지시일자', '지시일자'], ['라인', '생산라인'], ['지시량', '지시량', 1], ['규격', '규격']];
+  const shRows = rs => rs.map(r => ({ ...r, 출하번호: r['출하번호'], 출고일자: r['출고일자'], 매출업체: r['매출업체'], 현장명칭: r['현장명칭'] }));
+  if (it.kind === '평택 당월 로트') {
+    h += `<div class="rv-head"><span class="tag pt">${it.kind}</span><h4>${esc(o.제품명)}</h4><span class="code">${esc(o.제품코드)} · 로트 ${esc(o.로트번호)}</span>${o.flags.map(f => `<span class="flag">${esc(f)}</span>`).join(' ')}</div>
+    <div class="rv-calc"><div class="res">평택 매출 ${won(o.매출)}원 · 재료원가 ${won(o.원가)}원 (원료 ${won(o.원료)} / 자재 ${won(o.자재)}) · 원가율 ${pct(o.원가율)}</div>
+    <div class="eq">매출 = 출하금액 ${won(o.shipAmt)} × 평택비율 ${pct(o.K, 0)} (${esc(o.생산구분)})</div>
+    ${o.cur ? `<div class="eq">1개당 원가 = 단가대장 제조금액 ${won(o.cur.제조금액)} ÷ 같은 제품 당월 로트 생산수량 합 ${won(o.제품생산합)} = ${(o.개당원가 || 0).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}</div>
+    <div class="eq">재료원가 = 출하량 ${won(o.shipQty)} × ${(o.개당원가 || 0).toLocaleString('ko-KR', { maximumFractionDigits: 2 })} × ${pct(o.K, 0)}${o.잔량 ? ` · 잔량 ${won(o.잔량)}개(재료비 ${won(o.잔량재료비)})는 재고로 남김` : ''}</div>
+    ${o.로트중량합 != null ? `<div class="eq">점검: 단가대장 생산중량 ${o.단가대장중량} kg / 로트 중량 합 ${Math.round(o.로트중량합 * 10) / 10} kg</div>` : ''}`
+    : `<div class="eq">${esc(o.원가방식)}${o.원가월 ? ` · ${o.원가월}월 단가대장` : ''}</div>`}</div>
+    <div class="rv-grid">
+      ${kv('로트목록', `${R.lotSheet} ${o.행}행`, [['제품코드', o.제품코드], ['로트번호', o.로트번호], ['고객사', o.고객사], ['생산구분', o.생산구분], ['완료수량', o.완료수량, 1], ['완료단가', o.완료단가, 1], ['생산귀속', o.생산귀속]])}
+      ${ledBox(o.cur || o.prev)}
+    </div>
+    ${box('출하대장 (제품코드 + 로트번호)', `${o.sh.length}건 · 출하량 ${won(o.shipQty)} · ${won(o.shipAmt)}원`, shRows(o.sh), shCols)}
+    <div class="rv-grid">${box('발주 현황 (전체 월)', `${o.odAll.length}건`, o.odAll, odCols)}${box('작업지시현황', `${o.wo.length}건`, o.wo, woCols)}</div>`;
+  } else if (it.kind === '평택 전월 생산') {
+    h += `<div class="rv-head"><span class="tag pt">${it.kind}</span><h4>${esc(o.제품명)}</h4><span class="code">${esc(o.제품코드)} · 로트 ${esc(o.로트번호)}</span>${o.flags.map(f => `<span class="flag">${esc(f)}</span>`).join(' ')}</div>
+    <div class="rv-calc"><div class="res">평택 매출 ${won(o.매출)}원 · 재료원가 ${won(o.원가)}원 (원료 ${won(o.원료)} / 자재 ${won(o.자재)}) · 원가율 ${pct(o.원가율)}</div>
+    <div class="eq">평택 근거: ${esc(o.근거)} · 로트목록에 없음</div>
+    ${o.cur ? `<div class="eq">재료원가 = 출하중량 ${won(o.shipW)} kg × (${o.cur.m}월 제조금액 ${won(o.cur.제조금액)} ÷ 생산중량 ${o.cur.pw} kg)</div>` : '<div class="eq">생산월 단가대장이 없어 원가를 비웠습니다</div>'}</div>
+    ${box('출하대장 (제품코드 + 로트번호)', `${o.sh.length}건`, shRows(o.sh), shCols)}
+    <div class="rv-grid">${ledBox(o.cur)}${box('작업지시현황', `${o.wo.length}건`, o.wo, woCols)}</div>`;
+  } else {
+    const f = o.fco || {};
+    const lots = R.lots.filter(x => x.제품코드 === o.제품코드);
+    const ships = R.prev.filter(x => x.제품코드 === o.제품코드);
+    h += `<div class="rv-head"><span class="tag pt">${it.kind}</span><h4>${esc(o.제품명)}</h4><span class="code">${esc(o.제품코드)} · ${esc(o.구분)}</span>${o.flags.map(x => `<span class="flag">${esc(x)}</span>`).join(' ')}</div>
+    <div class="rv-calc"><div class="res">기말 재고 ${won(o.현재고)}개 · ${won(o.현재고금액)}원${o.재료비추정 != null ? ` · 재료비 추정 ${won(o.재료비추정)}원` : ''}</div>
+    <div class="eq">FCO: 전재고 ${won(o.전재고)} + 입고 ${won(o.입고)} − 출고 ${won(o.출고)} = 현재고 ${won(o.현재고)}</div>
+    ${o.잔량로트 ? `<div class="eq">로트목록 당월 생산 잔량: ${esc(o.잔량로트)}</div>` : ''}</div>
+    <div class="rv-grid">
+      ${kv('FCO 수불', f._row ? `${f._row}행` : o.출처, [['품목코드', o.제품코드], ['품목명', o.제품명], ['규격', o.규격], ['전재고액', f.전재고액, 1], ['입고금액', f.입고금액, 1], ['출고금액', f.출고금액, 1], ['현재고금액', o.현재고금액, 1]])}
+      ${ledBox(o.led)}
+    </div>
+    ${box('이번 달 평택 출하·로트', `${lots.length + ships.length}건`, [...lots.map(x => ({ 구분: '당월 로트', 로트: x.로트번호, 완료: x.완료수량, 출하: x.shipQty, 잔량: x.잔량 })), ...ships.map(x => ({ 구분: '전월 생산 출하', 로트: x.로트번호, 완료: null, 출하: x.shipQty, 잔량: null }))],
+      [['구분', '구분'], ['로트', '로트'], ['완료수량', '완료', 1], ['출하량', '출하', 1], ['잔량', '잔량', 1]])}`;
+  }
+  h += '</div>';
+  $('paneWrap').innerHTML = h;
+  $('paneNote').textContent = '◀ ▶ 버튼 또는 키보드 ← → 로 넘깁니다. 「확인」은 이 브라우저에 월별로 남습니다.';
+  $('cRv').textContent = `${done}/${ITEMS.length}`;
+  $('rvF').onchange = e => { RV_FILTER = e.target.value; const i2 = flt(); RV = i2.length ? i2[0] : 0; renderReview(); };
+  $('rvPrev').onclick = () => move(-1); $('rvNext').onclick = () => move(1);
+  $('rvCheck').onclick = () => { const all = store.get(ckKey(), {}); if (all[it.id]) delete all[it.id]; else all[it.id] = new Date().toISOString(); store.set(ckKey(), all); if (all[it.id] && pos < idx.length - 1 && RV_FILTER !== 'todo') move(1); else renderReview(); };
+}
+function move(d) { const idx = flt(); const p = idx.indexOf(RV); const n = idx[Math.min(idx.length - 1, Math.max(0, p + d))]; if (n != null) { RV = n; renderReview(); } }
+document.addEventListener('keydown', e => {
+  if (TAB !== 'rv' || !RES || /input|select|textarea/i.test(e.target.tagName)) return;
+  if (e.key === 'ArrowRight') { e.preventDefault(); move(1); } else if (e.key === 'ArrowLeft') { e.preventDefault(); move(-1); }
+});
 
 // 계산 기준: 링크로 열고 이동
 $('methodLink').onclick = e => { e.preventDefault(); $('method').open = true; $('method').scrollIntoView({ behavior: 'smooth', block: 'start' }); history.replaceState(null, '', '#method'); };

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 화성·평택 매출원가 명령줄 도구
-//   node cli/hp-cost.js <기초파일.xlsx | 폴더 | 개별 파일들…> [-o 출력경로] [--month 9] [--fx 1360] [--ratio ratio.json] [--json]
+//   node cli/hp-cost.js <기초파일.xlsx | 폴더 | 개별 파일들…> [-o 출력경로] [--month 9] [--ratio ratio.json] [--json]
 // 폴더를 주면 그 안의 .xlsx를 모두 처리해 <폴더>/output/ 에 결과를 저장합니다.
 // 혼자서 시트가 다 갖춰진 파일은 따로 계산하고, 시트별로 따로 받은 파일들은 하나로 묶어 계산합니다.
 const fs = require('fs');
@@ -16,7 +16,6 @@ function parseArgs(argv) {
     const k = argv[i];
     if (k === '-o' || k === '--out') a.out = argv[++i];
     else if (k === '--month') a.month = Number(argv[++i]);
-    else if (k === '--fx') a.fx = Number(argv[++i]);
     else if (k === '--ratio') a.ratio = JSON.parse(fs.readFileSync(argv[++i], 'utf8'));
     else if (k === '--json') a.json = true;
     else if (k === '-h' || k === '--help') a.help = true;
@@ -31,17 +30,19 @@ const readBook = file => XLSX.readFile(file, { cellFormula: true, cellDates: tru
 function processFiles(files, args, outPath) {
   const B = bookFromWorkbooks(XLSX, files.map(f => ({ name: path.basename(f), wb: readBook(f) })));
   if (B.missing.length) throw new Error('빠진 자료: ' + B.missing.join(', '));
-  const R = Engine.run(B, { month: args.month, fx: args.fx, ratio: args.ratio });
+  const R = Engine.run(B, { month: args.month, ratio: args.ratio });
   const label = files.map(f => path.basename(f)).join(', ');
   const out = outPath || path.join(path.dirname(files[0]), Report.outputName(R));
   XLSX.writeFile(Report.buildWorkbook(XLSX, R, label), out);
   const S = Report.totals(R);
   return {
-    file: label, output: out, month: R.opts.month, fx: R.opts.fx,
+    file: label, output: out, month: R.opts.month,
     total: Math.round(R.totalShip),
     pyeongtaek: { sales: Math.round(S.P.매출), raw: Math.round(S.P.원료), material: Math.round(S.P.자재) },
     hwaseong: { sales: Math.round(S.H.매출), raw: Math.round(S.H.원료), material: Math.round(S.H.자재) },
-    lots: R.lots.length, items: R.hw.length, flags: Report.flagsOf(R).length,
+    pyeongtaekPrevMonth: Math.round(R.P전월.매출),
+    pyeongtaekStock: R.stock.hasFco ? Math.round(R.stock.rows.filter(r => r.공장 === '평택').reduce((a, r) => a + r.현재고금액, 0)) : null,
+    lots: R.lots.length, prevLots: R.prev.length, items: R.hw.length, flags: Report.flagsOf(R).length,
   };
 }
 const processFile = (file, args, outPath) => processFiles([file], args, outPath);
@@ -60,7 +61,7 @@ function groupFiles(files) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help || !args.inputs.length) {
-    console.log('사용법: node cli/hp-cost.js <기초파일.xlsx | 폴더 | 개별 파일들…> [-o 출력] [--month 9] [--fx 1360] [--ratio ratio.json] [--json]');
+    console.log('사용법: node cli/hp-cost.js <기초파일.xlsx | 폴더 | 개별 파일들…> [-o 출력] [--month 9] [--ratio ratio.json] [--json]');
     process.exit(args.help ? 0 : 1);
   }
   const results = []; let failed = 0;
@@ -90,7 +91,7 @@ function main() {
         if (!args.json) {
           const w = n => n.toLocaleString('ko-KR');
           console.log(`✔ ${group.length > 1 ? `개별 파일 ${group.length}개` : s.file} (${s.month}월) → ${s.output}`);
-          console.log(`  총 매출 ${w(s.total)} | 평택 ${w(s.pyeongtaek.sales)} | 화성 ${w(s.hwaseong.sales)} | 확인사항 ${s.flags}건`);
+          console.log(`  총 매출 ${w(s.total)} | 평택 ${w(s.pyeongtaek.sales)} (전월 생산 ${w(s.pyeongtaekPrevMonth)}) | 화성 ${w(s.hwaseong.sales)} | 평택 미출고 재고 ${s.pyeongtaekStock == null ? "FCO 없음" : w(s.pyeongtaekStock)} | 확인사항 ${s.flags}건`);
         }
       } catch (e) {
         failed++;
