@@ -74,6 +74,26 @@ test('추정하지 않음: 생산월 단가대장이 없으면 원가 빈칸(당
   assert.ok(t4.flags.some(f => f.includes('생산월 8월')));
 });
 
+test('규칙 바꾸기: 평택 판단·주정 코드', () => {
+  const R2 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { rules: { ptWo: '10-99', ptSite: '없는현장' } });
+  assert.equal(R2.prev.length, 0, '평택 판단 기준을 바꾸면 전월 생산으로 잡히지 않음');
+  const R3 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { rules: { alcohol: [] } });
+  near(R3.lots.find(o => o.로트번호 === 'T001').원료, 150000, '주정을 원료에서 빼면 반제품만');
+  const R4 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()));
+  assert.equal(R4.prev.length, 1, '다음 계산은 기본 규칙으로 돌아감');
+});
+
+test('보관함: 월 옮기기·로트 수정은 수정 이력을 남김', () => {
+  const A = require('../src/archive.js');
+  const rec = { key: 'lots:2026-08', kind: 'lots', ym: '2026-08', n: 1, src: 'x', rows: [A.LOT_HDR, ['10S1700004', 'MB81C001', '쏘팔', '고객', '평택', 2981, 3728, '8월마감', '']] };
+  const mv = A.moveRecord(rec, '2026-07', '테스트');
+  assert.equal(mv.key, 'lots:2026-07'); assert.match(mv.edits[0].what, /8월 → 2026년 7월/);
+  const ed = A.editLots(rec, [['1OS1700004', 'MB81C001', '쏘팔', '고객', '평택', 2981, 3728, '8월마감', '']], '오타');
+  assert.match(ed.edits[0].what, /제품코드: 10S1700004 → 1OS1700004/);
+  const out = A.ingestSheets([{ name: 'x', rows: [['제품코드', '로트번호', '완료수량', '생산귀속월', '생산구분'], ['1A', 'L1', 1, '9월보류', '평택'], ['1A', 'L2', 1, '9월마감', '평택']] }], 'f.xlsx', new Date('2026-11-13'), { exclude: ['이월'] });
+  assert.equal(out.records[0].n, 2, '제외 단어를 바꾸면 보류도 저장');
+});
+
 test('화성 품목: 출하중량 × kg당 제조원가', () => {
   const g = R.hw.find(x => x.품목코드 === '1BB0000001');
   near(g.매출, 7500000, '매출'); near(g.중량, 150, '중량'); near(g.kg당원가, 10000, 'kg당 원가');

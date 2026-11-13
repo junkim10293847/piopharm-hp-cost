@@ -76,8 +76,12 @@ const Archive = (() => {
 
   // 파일 하나 → { records, skipped, needMonth, notes }
   // record = { key: 'led:2026-09' | 'ship:…' | 'fco:…' | 'lots:…' | 'order' | 'wo', kind, ym, rows, n, src }
-  function ingest(XLSX, wb, fileName, today = new Date()) { return ingestSheets(P.sheetsOf(XLSX, wb), fileName, today); }
-  function ingestSheets(allSheets, fileName, today = new Date()) {
+  // rules: { ledMonth: 'close'(시트 이름의 마감월) | 'date'(작업일자), exclude: ['이월', …] }
+  function ingest(XLSX, wb, fileName, today = new Date(), rules = {}) { return ingestSheets(P.sheetsOf(XLSX, wb), fileName, today, rules); }
+  function ingestSheets(allSheets, fileName, today = new Date(), rules = {}) {
+    const ledMonth = rules.ledMonth || 'close';
+    const exWords = rules.exclude && rules.exclude.length ? rules.exclude : ['이월', '취소', '보류', '예정'];
+    const exRe = new RegExp(exWords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'));
     const out = { records: [], skipped: [], needMonth: [], notes: [] };
     const sheets = allSheets.filter(s => s.rows.some(r => (r || []).some(v => v != null && v !== '')));
     const fileM = monthIn(fileName);
@@ -104,7 +108,7 @@ const Archive = (() => {
           if (!groups.has(ym)) groups.set(ym, []);
           groups.get(ym).push(r);
         }
-        if (kind === 'led' && sheetM && groups.size) {
+        if (kind === 'led' && ledMonth === 'close' && sheetM && groups.size) {
           // 마감월 기준: 이름의 월로 한 번에 저장. 연도는 같은 달 작업일자(없으면 가장 많은 연도)에서
           const same = [...groups.keys()].find(ym => Number(ym.slice(5)) === sheetM);
           const yr = same ? same.slice(0, 4) : [...groups.entries()].sort((a, b) => b[1].length - a[1].length)[0][0].slice(0, 4);
@@ -149,7 +153,7 @@ const Archive = (() => {
         const groups = new Map(), noMonth = [], skip = [];
         for (const l of lots) {
           const g = T(l.생산귀속);
-          if (/이월|취소|보류|예정/.test(g)) { skip.push(`${l.로트번호}(${g})`); continue; }
+          if (exRe.test(g)) { skip.push(`${l.로트번호}(${g})`); continue; }
           let m = monthIn(g);
           if (!m && l.구분 === '전월' && sheetM) m = sheetM === 1 ? 12 : sheetM - 1;
           const row = [l.제품코드, l.로트번호, l.제품명, l.고객사, l.생산구분, l.완료수량, l.완료단가, g, ''];
@@ -160,7 +164,7 @@ const Archive = (() => {
           groups.get(ym).push(row);
         }
         for (const [ym, rows] of groups) out.records.push({ key: `lots:${ym}`, kind: 'lots', ym, rows: [LOT_HDR, ...rows], n: rows.length, src });
-        if (skip.length) out.notes.push(`${src}: 생산귀속이 이월·취소·보류·예정인 ${skip.length}개는 저장하지 않음 (${skip.slice(0, 5).join(', ')}${skip.length > 5 ? ' 외' : ''})`);
+        if (skip.length) out.notes.push(`${src}: 생산귀속이 ${exWords.join('·')}인 ${skip.length}개는 저장하지 않음 (${skip.slice(0, 5).join(', ')}${skip.length > 5 ? ' 외' : ''})`);
         const typo = [...groups.values()].flat().filter(r => r[8]).map(r => r[0]);
         if (typo.length) out.notes.push(`${src}: 제품코드 형식 확인 필요 ${[...new Set(typo)].join(', ')} (O 대신 0?) — 고치지 않고 그대로 저장`);
         if (noMonth.length) out.needMonth.push({ key: null, kind: 'lots', ym: null, rows: [LOT_HDR, ...noMonth], n: noMonth.length, src });
@@ -181,6 +185,19 @@ const Archive = (() => {
     if (kept.length) newRec = { ...newRec, kept };
     const rows = [...map.values()];
     return { ...newRec, rows: [LOT_HDR, ...rows], n: rows.length, src: oldRec.src === newRec.src ? newRec.src : `${oldRec.src} + ${newRec.src}`, savedAt: new Date().toISOString() };
+  }
+
+  // 보관함 자료 고치기: 다른 월로 옮기기, 로트목록 행 수정. 수정 이력(edits)을 남김
+  function moveRecord(rec, ym, why) {
+    const edits = [...(rec.edits || []), { at: new Date().toISOString(), what: `${label(rec.ym)} → ${label(ym)} 이동${why ? ' (' + why + ')' : ''}` }];
+    return { ...rec, ym, key: `${rec.kind}:${ym}`, edits, savedAt: new Date().toISOString() };
+  }
+  function editLots(rec, rows, why) {
+    const before = new Map(rec.rows.slice(1).map(r => [r[1] + '#' + rec.rows.indexOf(r), r]));
+    const changes = [];
+    rows.forEach((r, i) => { const o = rec.rows[i + 1]; if (!o) return; LOT_HDR.forEach((h, j) => { if (String(o[j] ?? '') !== String(r[j] ?? '')) changes.push(`${o[1]} ${h}: ${o[j] ?? ''} → ${r[j] ?? ''}`); }); });
+    const edits = changes.length ? [...(rec.edits || []), { at: new Date().toISOString(), what: changes.join('; ') + (why ? ' (' + why + ')' : '') }] : (rec.edits || []);
+    return { ...rec, rows: [LOT_HDR, ...rows], n: rows.length, edits, savedAt: new Date().toISOString() };
   }
 
   // 보관함 → 계산용 book (당월 ym) + 생산월 기록
@@ -207,6 +224,6 @@ const Archive = (() => {
     return { book: { sheets }, history: { lotMonth, conflict }, missing, ledMonths: leds.map(r => r.ym).sort() };
   }
 
-  return { ingest, ingestSheets, merge, buildBook, ymOf, label, ymFromMonth, LOT_HDR };
+  return { ingest, ingestSheets, merge, buildBook, moveRecord, editLots, ymOf, label, ymFromMonth, LOT_HDR };
 })();
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = Archive;

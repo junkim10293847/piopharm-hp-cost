@@ -20,8 +20,11 @@ const Engine = (() => {
   const Z = v => v == null ? 0 : v;
   const Clean = s => T(s).replace(/[\s]/g, '');
   const noSpace = s => s.replace(/\s/g, '');
-  const PT_SITE = '비오팜2공장', PT_WO = '10-30';
   const RATIO = { '평택': 1, '화성포장': 0.8, '멀티연질': 0.6, '정제화성': 0.2, '화성': 0 };
+  // 바뀔 수 있는 규칙 (화면 「계산 규칙」에서 바꿈). run()이 시작할 때 정해짐
+  const DEFAULT_RULES = { ptWo: '10-30', ptSite: '비오팜2공장', semiPrefix: '3', alcohol: ['4C00000149'], exclude: ['이월', '취소', '보류', '예정'] };
+  let RU = { ...DEFAULT_RULES };
+  const exRe = () => new RegExp((RU.exclude && RU.exclude.length ? RU.exclude : ['\\uFFFF']).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'));
 
   function sheetBy(book, kw, optional) {
     const s = book.sheets.find(x => noSpace(x.name).includes(kw));
@@ -136,7 +139,7 @@ const Engine = (() => {
         if (!Lg.has(k)) Lg.set(k, { p, m, name: T(r['품목명']), 제조금액: 0, 원료: 0, pw: N(r['생산중량']), 행수: 0, 시트: s.name });
         const g = Lg.get(k);
         g.제조금액 += amt; g.행수++;
-        if (mat.startsWith('3') || mat === '4C00000149') g.원료 += amt;
+        if ((RU.semiPrefix && mat.startsWith(RU.semiPrefix)) || RU.alcohol.includes(mat)) g.원료 += amt;
       }
     }
     const led = (p, m) => Lg.get(p + '|' + m) || null;
@@ -144,7 +147,7 @@ const Engine = (() => {
     const prodMonth = (lot, hist) => {
       if (lot) {
         const g = T(lot.생산귀속); const mm = g.match(/(\d{1,2})\s*월/);
-        if (mm && !/이월|취소|보류|예정/.test(g)) return { m: Number(mm[1]), by: `로트목록 생산귀속 「${g}」` };
+        if (mm && !exRe().test(g)) return { m: Number(mm[1]), by: `로트목록 생산귀속 「${g}」` };
         if (lot.구분 === '전월') return { m: month === 1 ? 12 : month - 1, by: '로트목록 전월 구간' };
       }
       if (hist && hist.lotMonth && lot && hist.lotMonth.has(lot.key)) return { m: hist.lotMonth.get(lot.key), by: '보관함 이전 달 로트목록' };
@@ -166,7 +169,7 @@ const Engine = (() => {
     return { OdAll, Od, Wo, Sh, Lg, led, prodMonth, Fco };
   }
 
-  const isPtWo = w => T(w['지시번호']).startsWith(PT_WO);
+  const isPtWo = w => !!RU.ptWo && T(w['지시번호']).startsWith(RU.ptWo);
   // 출하대장 제품명이 숫자 코드(수출품 등)이면 FCO·단가대장 이름으로 바꿈
   const nameOf = (src, p, n) => {
     if (n && !/^\d+$/.test(n)) return n;
@@ -247,7 +250,7 @@ const Engine = (() => {
     for (const r of src.Sh) {
       if (listed.has(r.key) || !T(r['품목코드']).startsWith('1')) continue;
       const wo = src.Wo.filter(x => x.key === r.key);
-      const pt = wo.some(isPtWo) || T(r['현장명칭']) === PT_SITE;
+      const pt = wo.some(isPtWo) || T(r['현장명칭']) === RU.ptSite;
       if (!pt) continue;
       if (!groups.has(r.key)) groups.set(r.key, { key: r.key, 제품코드: T(r['품목코드']), 로트번호: T(r['로트번호']), 제품명: nameOf(src, T(r['품목코드']), T(r['제품명'])), 고객사: T(r['매출업체']), sh: [], wo });
       groups.get(r.key).sh.push(r);
@@ -257,7 +260,7 @@ const Engine = (() => {
       const pm = src.prodMonth({ key: g.key }, opts.history);
       const c = pm && pm.m !== opts.month ? src.led(g.제품코드, pm.m) : null;
       const o = { ...g, 구분: '전월 생산', K: 1, 생산구분: '평택', shipQty, shipW, shipAmt, flags: [], od: src.Od.filter(x => x.key === g.key), 생산월: pm, 생산월근거: pm ? pm.by : null };
-      o.근거 = [g.wo.some(isPtWo) ? `작업지시 ${PT_WO}` : null, g.sh.some(x => T(x['현장명칭']) === PT_SITE) ? PT_SITE : null].filter(Boolean).join(' · ');
+      o.근거 = [g.wo.some(isPtWo) ? `작업지시 ${RU.ptWo}` : null, g.sh.some(x => T(x['현장명칭']) === RU.ptSite) ? RU.ptSite : null].filter(Boolean).join(' · ');
       o.지시일자 = g.wo.map(w => T(w['지시일자'])).filter(Boolean).join(', ');
       if (c && c.pw && shipW) {
         o.원가월 = c.m; o.원가 = shipW * c.제조금액 / c.pw; o.원료 = c.제조금액 ? o.원가 * c.원료 / c.제조금액 : 0; o.자재 = o.원가 - o.원료;
@@ -304,7 +307,7 @@ const Engine = (() => {
     const plantOf = p => {
       if (ptProd.has(p)) return '평택';
       const ws = (woByProd.get(p) || []).filter(w => T(w['지시번호']));
-      if (!ws.length) return src.Sh.some(x => T(x['품목코드']) === p && T(x['현장명칭']) === PT_SITE) ? '평택' : '확인';
+      if (!ws.length) return src.Sh.some(x => T(x['품목코드']) === p && T(x['현장명칭']) === RU.ptSite) ? '평택' : '확인';
       const pt = ws.filter(isPtWo).length;
       return pt === ws.length ? '평택' : pt === 0 ? '화성' : '평택·화성';
     };
@@ -343,8 +346,9 @@ const Engine = (() => {
     const lotInfo = readLots(book);
     const month = userOpts.month || detectMonth(book);
     if (!month) throw new Error('당월을 알 수 없습니다. 당월을 입력하세요.');
+    RU = { ...DEFAULT_RULES, ...(userOpts.rules || {}) };
     const ratio = { ...RATIO, ...(userOpts.ratio || {}) };
-    const opts = { month, ratio, history: userOpts.history || null };
+    const opts = { month, ratio, rules: { ...RU }, history: userOpts.history || null };
     const src = prepare(book, month);
     const lots = calcLots(lotInfo.lots, src, opts);
     const prev = calcPrev(lots, src, opts);
@@ -364,6 +368,6 @@ const Engine = (() => {
     const 미확인 = { 평택: [...lots, ...prev].filter(o => o.매출 && o.원가 == null).reduce((a, o) => a + o.매출, 0) };
     return { opts, lotSheet: lotInfo.sheet, lots, prev, hw, stock, totalShip, P, P당월, P전월, H, Hl, Hu, 미확인 };
   }
-  return { run, readLots, T, N, RATIO };
+  return { run, readLots, T, N, RATIO, DEFAULT_RULES };
 })();
 if (typeof module !== 'undefined') module.exports = Engine;
