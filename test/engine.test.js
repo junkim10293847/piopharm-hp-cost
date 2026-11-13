@@ -141,3 +141,40 @@ test('개별 파일: 통합 파일 1개를 넣어도 그대로 동작', () => {
   assert.deepEqual(B.missing, []);
   sameResult(Engine.run(B));
 });
+
+// ---------- 자료별 칸 ----------
+const { SLOTS, pickSheet, bookFromSlots } = require('../src/parse.js');
+const slotOfSheet = sn => /발주/.test(sn) ? 'order' : /작업지시/.test(sn) ? 'wo' : /출하대장/.test(sn) ? 'ship'
+  : /9월 제품 단가/.test(sn) ? 'ledCur' : /8월 제품 단가/.test(sn) ? 'ledPrev' : /자재투입/.test(sn) ? 'mi' : /당월 생산/.test(sn) ? 'lots' : null;
+
+test('칸: 파일·시트 이름과 상관없이 칸에 넣은 대로 계산, 통합 파일과 결과 동일', () => {
+  const filled = {};
+  splitFixture(() => '아무이름.xlsx').forEach((f, i) => {
+    const id = slotOfSheet(fixtureWorkbook().SheetNames[i]);
+    if (!id) return;
+    const slot = SLOTS.find(s => s.id === id);
+    filled[id] = { wb: f.wb, file: 'export' + i + '.xlsx', sheet: pickSheet(XLSX, f.wb, slot, 9, false) };
+  });
+  const B = bookFromSlots(XLSX, filled, 9);
+  assert.deepEqual(B.missing, []); assert.deepEqual(B.warn, []);
+  sameResult(Engine.run(B, { month: 9 }));
+});
+
+test('칸: 통합 파일 1개를 넣으면 7칸에 자동 배치', () => {
+  const wb = fixtureWorkbook(), filled = {};
+  for (const slot of SLOTS) { const sh = pickSheet(XLSX, wb, slot, 9, true); if (sh) filled[slot.id] = { wb, sheet: sh, file: '기초.xlsx' }; }
+  assert.equal(filled.ledCur.sheet, '9월 제품 단가 대장');
+  assert.equal(filled.ledPrev.sheet, '8월 제품 단가 대장');
+  assert.equal(Object.keys(filled).length, 7);
+  sameResult(Engine.run(bookFromSlots(XLSX, filled, 9), { month: 9 }));
+});
+
+test('칸: 잘못된 칸에 넣으면 빠진 열을 알려줌, 전월 단가 대장은 선택', () => {
+  const wb = fixtureWorkbook();
+  const B = bookFromSlots(XLSX, { order: { wb, file: 'x.xlsx', sheet: '자재투입현황(6-9)'.replace(/\(.*/, '') } }, 9);
+  assert.ok(B.missing.includes('출하대장 (당월)'));
+  assert.ok(!B.missing.some(m => m.includes('전월')));
+  const sn = wb.SheetNames.find(n => n.includes('자재투입'));
+  const B2 = bookFromSlots(XLSX, { order: { wb, file: 'x.xlsx', sheet: sn } }, 9);
+  assert.deepEqual(B2.warn[0].missing, ['LOT', '매출월', '수주단가']);
+});

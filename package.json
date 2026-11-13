@@ -1,6 +1,6 @@
 {
   "name": "hwaseong-pyeongtaek-cost",
-  "version": "0.1.0",
+  "version": "1.2.0",
   "description": "ERP 기초 파일로 화성·평택 매출을 구분하고 로트·품목별 재료원가(원료·자재)를 계산합니다.",
   "private": true,
   "license": "UNLICENSED",

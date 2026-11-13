@@ -36,10 +36,6 @@ button,input{font:inherit;color:inherit}
 
 /* 업로드 바 */
 .bar{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px}
-.drop{flex:1 1 320px;min-width:0;display:flex;align-items:center;gap:12px;border:1.5px dashed var(--line);border-radius:8px;padding:10px 12px;transition:border-color .15s,background .15s}
-.drop.over{border-color:var(--pt);background:var(--pt-soft)}
-.fname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
-.fname b{color:var(--fg);font-weight:600}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:7px 14px;cursor:pointer;font-weight:500;white-space:nowrap}
 .btn:hover{border-color:var(--muted)}
 .btn.primary{background:var(--pt);border-color:var(--pt);color:#fff}
@@ -51,18 +47,26 @@ button,input{font:inherit;color:inherit}
 .opts label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
 .opts input{width:76px;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:5px 8px;text-align:right}
 .status{font-size:13px;color:var(--muted)}
-.kinds{flex-basis:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px 16px;margin:0;padding:0;list-style:none}
-.kinds li{display:flex;align-items:baseline;gap:8px;font-size:13px;min-width:0}
-.kinds .mk{flex:none;width:14px;text-align:center;font-weight:700;color:var(--muted)}
-.kinds li.ok .mk{color:var(--ok)}
-.kinds .kn{flex:none;font-weight:500}
-.kinds li:not(.ok) .kn{color:var(--muted)}
-.kinds .fs{min-width:0;display:flex;flex-wrap:wrap;gap:4px}
-.chip{display:inline-flex;align-items:center;gap:2px;max-width:100%;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:0 2px 0 7px;font-size:12px;color:var(--muted)}
-.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.chip button{border:0;background:none;cursor:pointer;color:var(--muted);padding:0 4px;font-size:13px;line-height:1.4}
-.chip button:hover{color:var(--warn)}
-.chip.warn{border-color:var(--warn);color:var(--warn)}
+.slots{flex-basis:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.slot{position:relative;border:1.5px dashed var(--line);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;min-width:0;transition:border-color .15s,background .15s}
+.slot.over{border-color:var(--pt);background:var(--pt-soft)}
+.slot.filled{border-style:solid}
+.slot.bad{border-color:var(--warn)}
+.slot-h{display:flex;align-items:baseline;gap:6px;font-weight:600;font-size:13.5px}
+.slot-h .no{font-family:var(--f-num);font-size:11px;color:var(--muted);font-weight:500}
+.slot-h .mk{margin-left:auto;font-size:13px;color:var(--muted)}
+.slot.filled .slot-h .mk{color:var(--ok)}
+.slot.bad .slot-h .mk{color:var(--warn)}
+.slot-hint{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot-act{display:flex;align-items:center;gap:6px;margin-top:4px;min-width:0}
+.slot-act .btn{padding:4px 10px;font-size:12.5px}
+.slot-file{min-width:0;flex:1;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot select{max-width:100%;font:inherit;font-size:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:5px;padding:2px 4px}
+.slot .rm{border:0;background:none;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;padding:0 4px}
+.slot .rm:hover{color:var(--warn)}
+.slot-warn{font-size:12px;color:var(--warn)}
+.opts .pm{font-size:13px;color:var(--muted)}
+.ver{font-size:11.5px;color:var(--muted);font-family:var(--f-num)}
 .status.err{color:var(--warn)}
 
 /* 빈 상태 */
@@ -133,29 +137,29 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
 
 <div class="wrap">
   <header>
-    <h1>화성·평택 매출원가</h1>
-    <p>기초 파일을 올리면 당월 출하를 화성·평택으로 나누고 품목별 재료원가(원료·자재)를 계산합니다. <a href="#method" id="methodLink">계산 기준 보기</a></p>
+    <h1>화성·평택 매출원가 <span class="ver" title="v1.2 (2026-11-13) 자료별 칸 · v1.1 (2026-11-11) 개별 파일 · v1.0 (2026-10-30) 첫 배포">v1.2 · 2026-11-13</span></h1>
+    <p>ERP 기초 자료를 칸마다 넣으면 당월 출하를 화성·평택으로 나누고 품목별 재료원가(원료·자재)를 계산합니다. <a href="#method" id="methodLink">계산 기준 보기</a></p>
   </header>
 
-  <section class="bar" aria-label="파일과 설정">
-    <div class="drop" id="drop">
-      <button class="btn primary" id="pick" type="button">파일 추가</button>
-      <input type="file" id="file" accept=".xlsx,.xlsm,.xls" multiple hidden>
-      <span class="fname" id="fname">시트별 파일을 하나씩, 여러 개 한꺼번에, 또는 통합 파일 1개 — 끌어다 놓아도 됩니다</span>
-      <button class="btn" id="clear" type="button" hidden>모두 지우기</button>
-    </div>
+  <section class="bar" aria-label="자료와 설정">
     <div class="opts">
-      <label for="month">당월 <input id="month" type="number" min="1" max="12" class="num" disabled></label>
+      <label for="month">당월 <input id="month" type="number" min="1" max="12" class="num"></label>
+      <span class="pm" id="pm"></span>
       <label for="fx">환율 <input id="fx" type="number" step="1" class="num" disabled></label>
-      <button class="btn" id="dl" type="button" disabled>엑셀 다운로드</button>
     </div>
-    <ul class="kinds" id="kinds" aria-label="필요한 자료"></ul>
+    <div class="opts" style="margin-left:auto">
+      <button class="btn" id="pickAll" type="button" title="여러 시트가 들어 있는 파일 1개를 넣으면 칸에 자동으로 나눠 넣습니다">통합 파일로 한 번에</button>
+      <button class="btn" id="clear" type="button" hidden>모두 비우기</button>
+      <button class="btn primary" id="dl" type="button" disabled>엑셀 다운로드</button>
+    </div>
+    <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
+    <div class="slots" id="slots"></div>
     <div class="status" id="status" role="status" aria-live="polite"></div>
   </section>
 
   <section class="empty" id="empty">
     <h2>필요한 파일</h2>
-    <div class="step"><span class="k">원천 자료</span><p>발주 현황 · 작업지시현황 · 출하대장 · 제품 단가 대장(월별) · 자재투입현황. ERP에서 받은 파일을 하나씩 넣어도 되고, 한 파일에 모아도 됩니다. 시트·파일 이름이나 머리글로 종류를 알아봅니다. 단가 대장·출하대장은 이름에 '9월'처럼 월이 있으면 됩니다.</p></div>
+    <div class="step"><span class="k">자료 넣기</span><p>위 7개 칸에 ERP에서 받은 파일을 하나씩 넣습니다. 파일 이름은 상관없고, 넣은 칸의 용도로 씁니다. 파일에 시트가 여러 개면 칸에서 쓸 시트를 고르면 됩니다. 통합 파일 1개가 있으면 「통합 파일로 한 번에」로 넣어도 됩니다.</p></div>
     <div class="step"><span class="k">평택 로트목록</span><p>지금 쓰는 「당월 생산」 시트(제공자료 칸)를 그대로 읽습니다. 「로트목록」 표 형식도 됩니다.</p></div>
     <div class="step"><span class="k">결과</span><p>평택 = 로트목록 출하 × 평택비율, 화성 = 나머지 출하. 요약·평택 로트별·화성 품목별·확인사항을 엑셀로 내려받습니다.</p></div>
     <p class="lock">파일은 이 브라우저 안에서만 읽고 계산합니다. 서버로 전송하거나 저장하지 않습니다.</p>
@@ -282,73 +286,118 @@ const div = (a, b) => b ? a / b : null;
 
 let BOOK = null, RES = null, FILENAME = '', TAB = 'pt';
 
-// ---------- 파일 읽기 ----------
+// ---------- 자료 칸 ----------
 function setStatus(msg, err) { $('status').textContent = msg || ''; $('status').classList.toggle('err', !!err); }
-$('pick').onclick = () => $('file').click();
-$('file').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
-const drop = $('drop');
-['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
-['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
-drop.addEventListener('drop', e => addFiles(e.dataTransfer.files));
-$('clear').onclick = () => { FILES.clear(); rebuild(); };
+const FILLED = {};            // 슬롯id → { wb, sheet, file }
+let TARGET = null;            // 파일 선택 창을 연 칸 (null = 통합 파일)
+let MONTH_SET = false;        // 사용자가 당월을 직접 고쳤는지
+const lastMonth = () => { const m = new Date().getMonth(); return m === 0 ? 12 : m; };
+const curMonth = () => Number($('month').value) || lastMonth();
+$('month').value = lastMonth();
 
-// 올린 파일: 이름 → 통합문서. 같은 이름을 다시 올리면 바꿔 끼움
-const FILES = new Map();
-async function addFiles(list) {
-  if (typeof XLSX === 'undefined') { setStatus('엑셀 읽기 도구를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도하세요.', true); return; }
-  const files = [...list].filter(f => /\.xls[xm]?$/i.test(f.name));
-  if (!files.length) return;
+async function readFile(f) {
+  if (typeof XLSX === 'undefined') throw new Error('엑셀 읽기 도구를 불러오지 못했습니다. 페이지를 새로 고친 뒤 다시 시도하세요.');
+  return XLSX.read(await f.arrayBuffer(), { type: 'array', cellFormula: true, cellDates: true });
+}
+// 칸 하나에 파일 넣기
+async function putSlot(id, f) {
+  if (!f) return;
   setStatus('파일을 읽는 중…');
-  await new Promise(r => setTimeout(r, 30));
-  const bad = [];
-  for (const f of files) {
-    try { FILES.set(f.name, XLSX.read(await f.arrayBuffer(), { type: 'array', cellFormula: true, cellDates: true })); }
-    catch (e) { console.error(e); bad.push(f.name); }
-  }
-  rebuild(bad.length ? '읽지 못한 파일: ' + bad.join(', ') : '');
+  try {
+    const wb = await readFile(f), slot = SLOTS.find(s => s.id === id);
+    if (id === 'ship' && !MONTH_SET) {                        // 출하대장 이름에 월이 있으면 당월로
+      const m = (wb.SheetNames.join(' ') + ' ' + f.name).match(/(\d{1,2})\s*월/);
+      if (m && +m[1] >= 1 && +m[1] <= 12) $('month').value = +m[1];
+    }
+    FILLED[id] = { wb, file: f.name, sheet: pickSheet(XLSX, wb, slot, curMonth(), false) };
+    refresh();
+  } catch (e) { console.error(e); setStatus(`${f.name}: 읽지 못했습니다 — ${e.message || e}`, true); }
+}
+// 통합 파일: 맞는 시트를 찾아 칸마다 배치
+async function putAll(f) {
+  if (!f) return;
+  setStatus('파일을 읽는 중…');
+  try {
+    const wb = await readFile(f);
+    if (!MONTH_SET) { const sn = wb.SheetNames.find(n => /출하대장/.test(n.replace(/\s/g, ''))), m = sn && sn.match(/(\d{1,2})\s*월/); if (m) $('month').value = +m[1]; }
+    let n = 0;
+    for (const slot of SLOTS) { const sh = pickSheet(XLSX, wb, slot, curMonth(), true); if (sh) { FILLED[slot.id] = { wb, file: f.name, sheet: sh }; n++; } }
+    refresh(n ? '' : `${f.name}: 칸에 맞는 시트를 찾지 못했습니다. 칸마다 직접 넣어 주세요.`);
+  } catch (e) { console.error(e); setStatus(`${f.name}: 읽지 못했습니다 — ${e.message || e}`, true); }
 }
 
-function rebuild(err) {
+$('file').onchange = e => { const f = e.target.files[0]; e.target.value = ''; TARGET ? putSlot(TARGET, f) : putAll(f); };
+$('pickAll').onclick = () => { TARGET = null; $('file').click(); };
+$('clear').onclick = () => { for (const k in FILLED) delete FILLED[k]; refresh(); };
+// 입력하는 즉시 반영 (칸 버튼을 바로 눌러도 클릭이 빠지지 않게, 같은 달이면 다시 그리지 않음)
+let SHOWN_MONTH = null;
+$('month').oninput = $('month').onchange = () => {
+  const v = Number($('month').value);
+  if (!(v >= 1 && v <= 12) || v === SHOWN_MONTH) return;
+  MONTH_SET = true; refresh();
+};
+$('fx').onchange = compute;
+
+function renderSlots() {
+  const m = curMonth(); SHOWN_MONTH = m;
+  $('pm').textContent = `월 · 전월 ${prevMonth(m)}월`;
+  const B = bookFromSlots(XLSX_OK() ? XLSX : null, FILLED, m);
+  $('slots').innerHTML = SLOTS.map((slot, i) => {
+    const f = FILLED[slot.id], sm = slot.month === 'cur' ? m : slot.month === 'prev' ? prevMonth(m) : null;
+    const w = B.warn.find(x => x.slot === slot.id);
+    const title = slot.label + (sm ? ` · ${sm}월` : '') + (slot.optional ? ' <span class="no">(선택)</span>' : '');
+    let body;
+    if (!f) body = `<div class="slot-act"><button class="btn" type="button" data-pick="${slot.id}">파일 선택</button><span class="slot-hint">또는 여기로 끌어다 놓기</span></div>`;
+    else {
+      const names = f.wb.SheetNames;
+      body = `<div class="slot-act"><span class="slot-file" title="${esc(f.file)}">${esc(f.file)}</span><button class="rm" type="button" data-rm="${slot.id}" aria-label="${esc(slot.label)} 비우기">×</button></div>`
+        + (names.length > 1 ? `<select data-sheet="${slot.id}" aria-label="쓸 시트">${names.map(n => `<option${n === f.sheet ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>` : '')
+        + (w ? `<div class="slot-warn">이 칸에 맞는 열이 없습니다: ${esc(w.missing.join(', '))}</div>` : '');
+    }
+    return `<div class="slot${f ? ' filled' : ''}${w ? ' bad' : ''}" data-slot="${slot.id}">
+      <div class="slot-h"><span class="no">${i + 1}</span>${title}<span class="mk">${f ? (w ? '!' : '✓') : ''}</span></div>
+      <div class="slot-hint">${esc(slot.hint)}</div>${body}</div>`;
+  }).join('');
+  return B;
+}
+const XLSX_OK = () => typeof XLSX !== 'undefined';
+$('slots').onclick = e => {
+  const t = e.target;
+  if (t.dataset.pick) { TARGET = t.dataset.pick; $('file').click(); }
+  if (t.dataset.rm) { delete FILLED[t.dataset.rm]; refresh(); }
+};
+$('slots').onchange = e => { const id = e.target.dataset.sheet; if (id) { FILLED[id].sheet = e.target.value; refresh(); } };
+const slotOf = e => e.target.closest && e.target.closest('.slot');
+['dragenter', 'dragover'].forEach(t => $('slots').addEventListener(t, e => { const el = slotOf(e); if (el) { e.preventDefault(); el.classList.add('over'); } }));
+$('slots').addEventListener('dragleave', e => { const el = slotOf(e); if (el && !el.contains(e.relatedTarget)) el.classList.remove('over'); });
+$('slots').addEventListener('drop', e => { const el = slotOf(e); if (!el) return; e.preventDefault(); el.classList.remove('over'); putSlot(el.dataset.slot, e.dataTransfer.files[0]); });
+// 칸 밖(페이지 아무 곳)에 놓으면 통합 파일로 처리
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { if (slotOf(e)) return; e.preventDefault(); putAll(e.dataTransfer.files[0]); });
+
+function refresh(err) {
   BOOK = null; RES = null;
-  $('month').value = ''; $('fx').value = '';
-  const names = [...FILES.keys()];
-  FILENAME = names.join(', ');
-  $('clear').hidden = !names.length;
-  $('fname').innerHTML = names.length ? `<b>${names.length}개 파일</b>` : '시트별 파일을 하나씩, 여러 개 한꺼번에, 또는 통합 파일 1개 — 끌어다 놓아도 됩니다';
-  const B = names.length ? bookFromWorkbooks(XLSX, names.map(n => ({ name: n, wb: FILES.get(n) }))) : { recognized: [], missing: SHEET_KINDS.map(k => k.label) };
-  renderKinds(B);
-  if (names.length && !B.missing.length) { BOOK = B; compute(); if (err) setStatus(err, true); return; }
-  $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true;
-  $('month').disabled = $('fx').disabled = true;
-  setStatus(err || (names.length ? '아직 필요한 자료: ' + B.missing.join(', ') : ''), !!err);
+  const B = renderSlots();
+  const files = [...new Set(Object.values(FILLED).map(f => f.file))];
+  FILENAME = files.join(', ');
+  $('clear').hidden = !files.length;
+  if (!B.missing.length && !B.warn.length) { BOOK = B; compute(); if (err) setStatus(err, true); return; }
+  $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true; $('fx').disabled = true; $('fx').value = '';
+  setStatus(err || (B.warn.length ? '빨간 표시 칸을 확인해 주세요. 다른 시트를 고르거나 맞는 파일로 바꾸면 됩니다.'
+    : files.length ? '남은 칸: ' + B.missing.join(', ') : ''), !!err || !!B.warn.length);
 }
-
-function renderKinds(B) {
-  const chip = (r, warn) => `<span class="chip${warn ? ' warn' : ''}" title="${esc(r.file + ' · ' + r.sheet + (r.note ? ' — ' + r.note : ''))}"><span>${esc(r.file)}${r.month && !r.file.includes(r.month + '월') ? ` (${r.month}월)` : ''}</span><button type="button" data-rm="${esc(r.file)}" aria-label="${esc(r.file)} 빼기">×</button></span>`;
-  const rows = SHEET_KINDS.map(k => {
-    const rs = B.recognized.filter(r => r.kind === k.label);
-    const seen = new Set(), uniq = rs.filter(r => !seen.has(r.file + r.month) && seen.add(r.file + r.month));
-    return `<li class="${uniq.some(r => !r.dup) ? 'ok' : ''}"><span class="mk">${uniq.some(r => !r.dup) ? '✓' : '·'}</span><span class="kn">${k.label}</span><span class="fs">${uniq.map(r => chip(r, r.dup || r.note)).join('')}</span></li>`;
-  });
-  const used = new Set(B.recognized.filter(r => r.kind).map(r => r.file));
-  const other = [...new Set(B.recognized.filter(r => !used.has(r.file)).map(r => r.file))];
-  if (other.length) rows.push(`<li><span class="mk">?</span><span class="kn">알아보지 못함</span><span class="fs">${other.map(f => chip({ file: f, sheet: '', note: '종류를 알 수 없어 사용 안 함' }, true)).join('')}</span></li>`);
-  $('kinds').innerHTML = rows.join('');
-}
-$('kinds').onclick = e => { const f = e.target.dataset && e.target.dataset.rm; if (f) { FILES.delete(f); rebuild(); } };
-rebuild();
+refresh();
 
 function lotSrc() {
   const sh = BOOK.sheets.find(x => x.name === RES.lotSheet);
-  return sh && sh.file && FILES.size > 1 ? sh.file : `「${RES.lotSheet}」 시트`;
+  return sh && sh.file ? sh.file : `「${RES.lotSheet}」 시트`;
 }
 function compute() {
   if (!BOOK) return;
   try {
-    const m = Number($('month').value) || undefined, fx = Number($('fx').value) || undefined;
-    RES = Engine.run(BOOK, { month: m, fx });
-    $('month').value = RES.opts.month; $('fx').value = RES.opts.fx;
-    $('month').disabled = $('fx').disabled = false;
+    const fx = Number($('fx').value) || undefined;
+    RES = Engine.run(BOOK, { month: curMonth(), fx });
+    $('fx').value = RES.opts.fx; $('fx').disabled = false;
     $('dl').disabled = false;
     setStatus(`${RES.opts.month}월 · 평택 로트 ${RES.lots.length}개(${lotSrc()}) · 화성 품목 ${RES.hw.length}개 계산 완료`);
     render();
@@ -358,7 +407,6 @@ function compute() {
     setStatus('계산하지 못했습니다: ' + (e.message || e), true);
   }
 }
-$('month').onchange = compute; $('fx').onchange = compute;
 
 const totals = Report.totals, flagsOf = Report.flagsOf;
 

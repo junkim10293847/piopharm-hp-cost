@@ -1,5 +1,12 @@
 // SheetJS 통합문서 → 엔진 입력 (A1 기준 2차원 배열 + 수식 조회)
+const _sheetCache = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
 function sheetsOf(XLSX, wb) {
+  if (_sheetCache && _sheetCache.has(wb)) return _sheetCache.get(wb);
+  const out = _sheetsOf(XLSX, wb);
+  if (_sheetCache) _sheetCache.set(wb, out);
+  return out;
+}
+function _sheetsOf(XLSX, wb) {
   return wb.SheetNames.map(name => {
     const ws = wb.Sheets[name];
     const rows = [];
@@ -82,8 +89,79 @@ function bookFromWorkbooks(XLSX, files) {
   return { sheets, recognized, missing };
 }
 
+
+// ---------- 자료별 칸(슬롯) ----------
+// 칸에 넣은 파일은 이름과 상관없이 그 칸의 용도로 씁니다.
+// month: 'cur' = 당월, 'prev' = 전월
+const SLOTS = [
+  { id: 'order', kind: '발주현황', label: '발주 현황', hint: '매출 월 · LOT · 제품코드 · 수주단가' },
+  { id: 'wo', kind: '작업지시', label: '작업지시현황', hint: '제품로트번호 · 지시제품 · 규격' },
+  { id: 'ship', kind: '출하대장', label: '출하대장', month: 'cur', hint: '로트번호 · 매출업체 · 중량 · 공급가액' },
+  { id: 'ledCur', kind: '단가대장', label: '제품 단가 대장', month: 'cur', hint: '품목코드 · 생산중량 · 자재코드 · 상세금액' },
+  { id: 'ledPrev', kind: '단가대장', label: '제품 단가 대장', month: 'prev', optional: true, hint: '전월 생산 로트가 있을 때 넣으면 됩니다' },
+  { id: 'mi', kind: '자재투입', label: '자재투입현황', hint: '투입번호 · 제조일자 · 생산중량 · 투입중량' },
+  { id: 'lots', kind: '로트목록', label: '평택 로트목록', hint: '「당월 생산」 시트(제공자료) 또는 로트목록 표' },
+];
+const prevMonth = m => (m ? (m === 1 ? 12 : m - 1) : null);
+const slotMonth = (slot, month) => (slot.month === 'cur' ? month : slot.month === 'prev' ? prevMonth(month) : null);
+const _clean = s => String(s ?? '').replace(/\s/g, '');
+const _monthIn = s => { const m = String(s || '').match(/(\d{1,2})\s*월/); return m ? Number(m[1]) : null; };
+const _kindOf = kw => SHEET_KINDS.find(k => k.kw === kw);
+const _nameIs = (name, k) => [k.kw, ...(k.alias || [])].some(w => _clean(name).includes(w));
+
+// 머리글에서 빠진 열 (없으면 빈 배열)
+function headerMissing(rows, kw) {
+  const k = _kindOf(kw);
+  const need = k.lots ? ['로트번호', '완료수량'] : k.need;
+  let best = need;
+  for (let i = 0; i < Math.min(rows.length, 15); i++) {
+    const c = (rows[i] || []).map(_clean);
+    const miss = need.filter(n => !c.some(x => (k.lots ? x.startsWith(n) : x === n)));
+    if (miss.length < best.length) best = miss;
+  }
+  return best;
+}
+
+// 통합문서에서 칸에 맞는 시트 고르기
+// strict = true(통합 파일 자동 배치): 맞는 시트가 없으면 null
+// strict = false(칸에 직접 넣음): 못 찾으면 첫 시트
+function pickSheet(XLSX, wb, slot, month, strict) {
+  const k = _kindOf(slot.kind), target = slotMonth(slot, month);
+  const sheets = sheetsOf(XLSX, wb).filter(s => s.rows.some(r => r.some(v => v != null && v !== '')));
+  const named = sheets.filter(s => _nameIs(s.name, k));
+  let pick = null;
+  if (slot.month && target) pick = named.find(s => _monthIn(s.name) === target);
+  if (!pick && named.length) {
+    if (slot.month === 'prev' && strict) pick = null;            // 전월 칸은 월이 맞을 때만 자동 배치
+    else pick = slot.month ? named.find(s => _monthIn(s.name) == null) || (strict ? null : named[0]) : named[0];
+  }
+  if (!pick && !(strict && named.length)) pick = sheets.find(s => !headerMissing(s.rows, slot.kind).length && !SHEET_KINDS.some(o => o !== k && _nameIs(s.name, o)));
+  if (!pick && !strict) pick = sheets[0];
+  return pick ? pick.name : null;
+}
+
+// filled = { 슬롯id: { wb, sheet, file } }
+function bookFromSlots(XLSX, filled, month) {
+  const pm = prevMonth(month);
+  const nameFor = { order: '발주 현황', wo: '작업지시현황', ship: `${month}월 출하대장`, ledCur: `${month}월 제품 단가 대장`,
+    ledPrev: `${pm}월 제품 단가 대장`, mi: '자재투입현황', lots: '당월 생산' };
+  const sheets = [], warn = [];
+  for (const slot of SLOTS) {
+    const f = filled[slot.id];
+    if (!f) continue;
+    const sh = sheetsOf(XLSX, f.wb).find(s => s.name === f.sheet);
+    if (!sh) continue;
+    sheets.push({ ...sh, name: nameFor[slot.id], file: f.file, slot: slot.id });
+    const miss = headerMissing(sh.rows, slot.kind);
+    if (miss.length) warn.push({ slot: slot.id, missing: miss });
+  }
+  const missing = SLOTS.filter(s => !s.optional && !filled[s.id]).map(s => s.label + (s.month ? (s.month === 'cur' ? ' (당월)' : ' (전월)') : ''));
+  return { sheets, missing, warn };
+}
+
 if (typeof module !== 'undefined') {
   module.exports = bookFromWorkbook;
   module.exports.bookFromWorkbooks = bookFromWorkbooks;
   module.exports.SHEET_KINDS = SHEET_KINDS;
+  Object.assign(module.exports, { SLOTS, pickSheet, bookFromSlots, headerMissing, prevMonth });
 }
