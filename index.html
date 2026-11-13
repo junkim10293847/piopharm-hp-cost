@@ -584,7 +584,13 @@ async function calcLog(ym, ex) {
 }
 function srcRender() {
   const ym = ymNow(), c = CALC['calc:' + ym], el = $('csrc');
-  if (!c) { el.hidden = true; return; }
+  if (!c) {
+    const done = Object.keys(CALC).map(k => k.slice(5)).sort();
+    const ready = typeof ARCH === 'object' ? Object.keys(ARCH).filter(k => k.startsWith('lots:')).map(k => k.slice(5)).filter(archReady).sort() : [];
+    const go = done.length ? done[done.length - 1] : ready[ready.length - 1];
+    el.innerHTML = `<div class="h"><b>${Number(ym.slice(5))}월 계산 근거</b><span class="meta">${RES ? '' : '이 달은 아직 계산 기록이 없습니다. 칸을 채우거나 보관함 자료로 계산하면 어떤 자료로 계산했는지 여기에 나옵니다.'}</span>${go && go !== ym ? `<button class="btn sm" type="button" data-goym="${go}">${Number(go.slice(5))}월 계산 근거 보기</button>` : ''}</div>`;
+    el.hidden = !!RES; return;
+  }
   const live = !!(RES && MONTHS[ym] && MONTHS[ym].res === RES);
   const stale = c.items.filter(i => i.akey && (!ARCH[i.akey] || (ARCH[i.akey].savedAt || '') > c.at));
   const item = i => {
@@ -603,7 +609,7 @@ function srcRender() {
     <div class="g">${c.items.map(item).join('')}</div>`;
   el.hidden = false;
 }
-$('csrc').onclick = e => { const b = e.target.closest('[data-recalc]'); if (b) { delete MONTHS[b.dataset.recalc]; computeFromArchive(b.dataset.recalc); } };
+$('csrc').onclick = e => { const g = e.target.closest('[data-goym]'); if (g) { gotoMonth(Number(g.dataset.goym.slice(5))); return; } const b = e.target.closest('[data-recalc]'); if (b) { delete MONTHS[b.dataset.recalc]; computeFromArchive(b.dataset.recalc); } };
 function histRender() {
   const cur = ymNow();
   const yms = new Set([...Object.keys(MONTHS).filter(k => MONTHS[k].res), ...Object.keys(CALC).map(k => k.slice(5)), ...(typeof ARCH === 'object' ? Object.keys(ARCH).filter(k => k.startsWith('lots:')).map(k => k.slice(5)).filter(archReady) : [])]);
