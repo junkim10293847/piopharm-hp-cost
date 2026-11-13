@@ -217,6 +217,8 @@ tr.click:hover td{background:var(--bg)}
 .upd .s{opacity:.75;font-size:12px}
 .upd .btn{background:var(--pt);border-color:var(--pt);color:#fff}
 .upd .x{background:none;border:0;color:inherit;opacity:.7;cursor:pointer;font-size:16px;padding:0 4px}
+.btn.calc{background:var(--fg);border-color:var(--fg);color:var(--surface);font-weight:600}
+.btn.calc:hover{opacity:.88}
 .btn.nav{padding:5px 10px;font-size:12px}
 .hist{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:12px;color:var(--muted)}
 .hist .chip2.cur{background:var(--fg);color:var(--surface);border-color:var(--fg)}
@@ -272,6 +274,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
       <button class="btn" id="archToggle" type="button" aria-expanded="false">보관함 열기</button>
       <button class="btn" id="pickAll" type="button" title="여러 시트가 들어 있는 파일 1개를 넣으면 칸에 자동으로 나눠 넣습니다">통합 파일로 한 번에</button>
       <button class="btn" id="clear" type="button" hidden>모두 비우기</button>
+      <button class="btn calc" id="calcBtn" type="button" title="지금 칸(또는 보관함) 자료로 이 달을 계산합니다">계산하기</button>
       <button class="btn primary" id="dl" type="button" disabled>엑셀 다운로드</button>
     </div>
     <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
@@ -626,6 +629,7 @@ function histRender() {
     return `<button type="button" class="chip2${ym === cur ? ' cur' : ''}" data-goto="${ym}" title="${esc(tip)}">${Number(ym.slice(5))}월<span class="n">${c ? '✓ ' : ''}${mark}</span></button>`;
   }).join('') : '';
   srcRender();
+  $('calcBtn').textContent = RES ? '다시 계산' : '계산하기';
 }
 $('hist').onclick = e => { const b = e.target.closest('[data-goto]'); if (b) gotoMonth(Number(b.dataset.goto.slice(5))); };
 
@@ -669,7 +673,7 @@ document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => { if (slotOf(e)) return; e.preventDefault(); putAll(e.dataTransfer.files[0]); });
 
 function refresh(err) {
-  BOOK = null; RES = null; ARCH_USE = null;
+  BOOK = null; RES = null; ARCH_USE = null; $('calcBtn').textContent = '계산하기';
   const B = renderSlots();
   const files = [...new Set(Object.values(FILLED).map(f => f.file))];
   FILENAME = files.join(', ');
@@ -679,6 +683,19 @@ function refresh(err) {
   setStatus(err || (B.warn.length ? '빨간 표시 칸을 확인해 주세요. 다른 시트를 고르거나 맞는 파일로 바꾸면 됩니다.'
     : files.length ? '남은 칸: ' + B.missing.join(', ') : ''), !!err || !!B.warn.length);
 }
+// 계산하기: 칸 파일 → 보관함 순서로 지금 달을 (다시) 계산
+$('calcBtn').onclick = () => {
+  const m = curMonth(), ym = ymNow();
+  const B = bookFromSlots(XLSX_OK() ? XLSX : null, FILLED, m);
+  const hasFiles = Object.keys(FILLED).length > 0;
+  if (hasFiles && !B.missing.length && !B.warn.length) { delete MONTHS[ym]; refresh(); return; }
+  if ((!hasFiles || ARCH_USE === ym) && archReady(ym)) { delete MONTHS[ym]; computeFromArchive(ym); return; }
+  if (B.warn.length) { showError('계산할 수 없습니다', '빨간 표시 칸의 시트에 필요한 열이 없습니다. 다른 시트를 고르거나 맞는 파일로 바꿔 주세요.'); return; }
+  const inArch = archReady(ym) ? `\n\n${m}월 자료는 보관함에 모두 있습니다. 칸에 넣은 파일을 비우고(모두 비우기) 다시 누르면 보관함 자료로 계산합니다.` : '';
+  const other = Object.keys(ARCH).filter(k => k.startsWith('lots:')).map(k => k.slice(5)).filter(y => y !== ym && archReady(y)).sort();
+  const hintO = other.length ? `\n\n보관함으로 바로 계산할 수 있는 달: ${other.map(y => Number(y.slice(5)) + '월').join(', ')} — ◀ ▶나 계산 내역에서 고르세요.` : '';
+  showError(`${m}월을 계산할 자료가 부족합니다`, `비어 있는 필수 칸: ${B.missing.join(', ')}${inArch || `\n\n칸에 파일을 넣거나, 보관함에 ${m}월 로트목록·출하대장·단가대장과 발주·작업지시 최신본을 넣어 주세요.`}${hintO}`);
+};
 // ---------- 월별 자료 보관함 (IndexedDB, 이 브라우저에만) ----------
 let ARCH = {};                 // key → record (자료)
 const CALC = {};               // 'calc:YYYY-MM' → 계산 기록 (자료와 따로 보관 — 계산에는 쓰지 않음)
