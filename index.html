@@ -262,20 +262,20 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
           <li><b>1개당 원가</b> = 당월 단가대장 제품 제조금액 ÷ 같은 제품 로트들의 생산수량 합 (생산수량 = 완료수량과 출하량 중 큰 값)</li>
           <li><b>재료원가</b> = 출하량 × 1개당 원가 × 평택비율. 출하되지 않은 수량은 원가에 넣지 않고 잔량으로 남깁니다</li>
           <li><b>원료</b> = 반제품(3…) + 주정(4C00000149), <b>자재</b> = 나머지</li>
-          <li>당월 단가대장에 없는 로트가 출하되면 이전 달 대장의 kg당 원가 × 출하중량</li>
+          <li>당월 단가대장에 없는 로트가 출하되면 생산월(작업지시 지시월 또는 그다음 달) 대장의 kg당 원가 × 출하중량. 그 대장이 없으면 원가를 비워 둡니다(다른 달로 추정하지 않음)</li>
         </ol>
       </section>
       <section>
         <h4><span class="tag pt">평택</span> 전월 생산 출하</h4>
         <ul>
           <li>로트목록에 없지만 작업지시번호가 10-30이거나 출하 현장이 비오팜2공장인 출하</li>
-          <li><b>원가</b> = 출하중량 × (생산월 단가대장 제조금액 ÷ 생산중량). 전월·전전월 단가 대장 칸에서 가장 가까운 달을 씁니다</li>
+          <li><b>원가</b> = 출하중량 × (생산월 단가대장 제조금액 ÷ 생산중량). 생산월 = 작업지시 지시월 또는 그다음 달. 그 대장이 없으면 빈칸</li>
         </ul>
       </section>
       <section>
         <h4><span class="tag hs">화성</span> 품목별 원가</h4>
         <ul>
-          <li><b>원가</b> = 출하중량 × (단가대장 제품 제조금액 ÷ 생산중량), 당월 대장이 없으면 가장 가까운 이전 달</li>
+          <li><b>원가</b> = 출하중량 × (당월 단가대장 제품 제조금액 ÷ 생산중량). 당월 대장에 없는 품목은 빈칸</li>
           <li>제품이 아니거나(원료·상품 판매) 단가대장에 없는 품목은 원가를 비우고 확인사항에 표시합니다</li>
         </ul>
       </section>
@@ -283,7 +283,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
         <h4>미출고 재고</h4>
         <ul>
           <li>FCO 칸이 있으면 FCO 제품(1…)의 현재고·현재고금액. 공장은 작업지시번호(10-30 평택, 10-10 화성)로 구분</li>
-          <li>FCO가 없으면 평택 로트목록의 당월 생산 잔량 × 1개당 원가(재료비)로 추정</li>
+          <li>FCO가 없으면 평택 로트목록의 당월 생산 잔량과 그 재료비(당월 단가대장)만 표시</li>
           <li>단가대장은 재료비, FCO는 가공비 포함 원가로 보여 두 금액은 다릅니다</li>
         </ul>
       </section>
@@ -465,7 +465,7 @@ function render() {
   $('hVal').textContent = eok(S.H.매출); $('hSub').textContent = pct(div(S.H.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.H.원료 + S.H.자재, S.H.매출));
   const pts = ptStock();
   $('sVal').textContent = eok(stockTotal(pts));
-  $('sSub').textContent = R.stock.hasFco ? `FCO · ${pts.length}개 제품` : `추정(재료비) · FCO 칸을 넣으면 실제 금액`;
+  $('sSub').textContent = R.stock.hasFco ? `FCO · ${pts.length}개 제품` : `로트 잔량 재료비 · FCO 칸을 넣으면 재고액`;
   $('barP').style.width = (div(S.P.매출, R.totalShip) * 100 || 0) + '%';
   $('barH').style.width = (div(S.H.매출, R.totalShip) * 100 || 0) + '%';
   $('track').setAttribute('aria-label', `평택 ${pct(div(S.P.매출, R.totalShip))}, 화성 ${pct(div(S.H.매출, R.totalShip))}`);
@@ -506,26 +506,26 @@ function renderPane() {
       R.prev.map(o => `<tr class="click" data-go="P:${esc(o.key)}"><td class="t num">${esc(o.로트번호)}${chk('P:' + o.key)}</td><td class="t name" title="${esc(o.제품명)}">${esc(o.제품명)}</td><td class="t muted">${esc(o.근거)}</td><td class="t num">${esc(o.지시일자)}</td>
         <td class="num">${won(o.shipQty)}</td><td class="num">${won(o.shipW)}</td><td class="num">${won(o.매출)}</td><td class="num">${o.원가월 ?? '–'}</td><td class="num">${won(o.원료)}</td><td class="num">${won(o.자재)}</td><td class="num">${pct(o.원가율)}</td>
         <td class="t">${flagsHtml(o.flags)}</td></tr>`).join('') + '</tbody></table>' : '<p style="padding:16px;margin:0" class="muted">로트목록에 없는 평택 출하가 없습니다.</p>';
-    note = '로트목록에 없지만 작업지시번호 10-30 또는 출하 현장 비오팜2공장인 출하입니다. 생산월 단가 대장이 없으면 원가가 비어 있으니 전월·전전월 칸에 넣어 주세요.';
+    note = '로트목록에 없지만 작업지시번호 10-30 또는 출하 현장 비오팜2공장인 출하입니다. 원가는 생산월(작업지시 지시월 또는 그다음 달) 단가 대장으로만 계산하고, 그 대장이 없으면 빈칸으로 둡니다. 전월·전전월 칸에 넣으면 채워집니다.';
   } else if (TAB === 'st') {
     const rows = R.stock.rows.filter(r => ST_FILTER === 'all' || (ST_FILTER === 'pt' ? r.공장 === '평택' : r.공장 !== '평택'));
     const saved = store.get('hpcost.stock', {});
     tools = `<div class="tools"><span class="seg" role="group" aria-label="공장">${[['pt', '평택'], ['etc', '화성·기타'], ['all', '전체']].map(([k, l]) => `<button type="button" data-st="${k}" aria-pressed="${ST_FILTER === k}">${l}</button>`).join('')}</span>
-      <span class="muted" style="font-size:12.5px">${rows.length}개 · ${won(stockTotal(rows))}원 ${R.stock.hasFco ? '(FCO)' : '(재료비 추정)'}</span>
+      <span class="muted" style="font-size:12.5px">${rows.length}개 · ${won(stockTotal(rows))}원 ${R.stock.hasFco ? '(FCO)' : '(로트목록 잔량 재료비)'}</span>
       <span class="sp"></span>${Object.keys(saved).length ? `<span class="muted" style="font-size:12px">저장: ${Object.entries(saved).sort().map(([m, v]) => `${m} ${eok(v.total)}`).join(' · ')}</span>` : ''}
       <button class="btn" type="button" id="saveStock">${R.opts.month}월 평택 재고 저장</button></div>`;
-    h = rows.length ? `<table><thead><tr><th class="t">공장</th><th class="t">제품코드</th><th class="t">제품명</th><th class="t">구분</th><th>전재고</th><th>입고</th><th>출고</th><th>현재고</th><th>현재고금액</th><th>재료비 추정</th><th class="t">당월 잔량 로트</th><th class="t">확인</th></tr></thead><tbody>` +
+    h = rows.length ? `<table><thead><tr><th class="t">공장</th><th class="t">제품코드</th><th class="t">제품명</th><th class="t">구분</th><th>전재고</th><th>입고</th><th>출고</th><th>현재고</th><th>현재고금액</th><th>재료비(로트 잔량)</th><th class="t">당월 잔량 로트</th><th class="t">확인</th></tr></thead><tbody>` +
       rows.map(r => `<tr class="click" data-go="S:${esc(r.제품코드)}"><td class="t">${r.공장 === '평택' ? '<span class="tag pt">평택</span>' : r.공장 === '화성' ? '<span class="tag hs">화성</span>' : esc(r.공장)}</td><td class="t num">${esc(r.제품코드)}${chk('S:' + r.제품코드)}</td><td class="t name" title="${esc(r.제품명)}">${esc(r.제품명)}</td><td class="t">${esc(r.구분)}</td>
         <td class="num">${won(r.전재고)}</td><td class="num">${won(r.입고)}</td><td class="num">${won(r.출고)}</td><td class="num">${won(r.현재고)}</td><td class="num">${won(r.현재고금액)}</td><td class="num">${won(r.재료비추정)}</td><td class="t muted">${esc(r.잔량로트)}</td>
         <td class="t">${flagsHtml(r.flags)}</td></tr>`).join('') + '</tbody></table>' : '<p style="padding:16px;margin:0" class="muted">해당하는 미출고 재고가 없습니다.</p>';
     note = R.stock.hasFco ? 'FCO 현재고가 남은 제품만 보입니다(미출고). 공장은 작업지시번호로 구분합니다. 「재고 저장」을 누르면 이 브라우저에 월별로 남습니다.'
-      : 'FCO 칸이 비어 있어 평택 로트목록의 당월 생산 잔량을 단가대장 재료비로 추정했습니다.';
+      : 'FCO 칸이 비어 있어 평택 로트목록의 당월 생산 잔량과 그 재료비(당월 단가대장)만 보여 줍니다.';
   } else if (TAB === 'hs') {
     h = `<table><thead><tr><th class="t">품목코드</th><th class="t">제품명</th><th class="t">거래처</th><th>출하중량(kg)</th><th>매출</th><th>kg당 원가</th><th>원료</th><th>자재</th><th>재료원가율</th><th>원가월</th><th class="t">확인</th></tr></thead><tbody>` +
       R.hw.map(g => `<tr><td class="t num">${esc(g.품목코드)}</td><td class="t name" title="${esc(g.제품명)}">${esc(g.제품명)}</td><td class="t name" title="${esc(g.거래처)}">${esc(g.거래처)}</td>
         <td class="num">${won(g.중량)}</td><td class="num">${won(g.매출)}</td><td class="num">${won(g.kg당원가)}</td><td class="num">${won(g.원료)}</td><td class="num">${won(g.자재)}</td><td class="num">${pct(g.원가율)}</td><td class="num">${g.원가월 ?? '–'}</td>
         <td class="t">${g.flag ? `<span class="flag">${esc(g.flag)}</span>` : ''}</td></tr>`).join('') + '</tbody></table>';
-    note = '평택에 들어가지 않은 출하를 품목별로 묶었습니다. kg당 원가는 당월(없으면 가장 가까운 이전 달) 단가대장의 제조금액 ÷ 생산중량입니다.';
+    note = '평택에 들어가지 않은 출하를 품목별로 묶었습니다. kg당 원가는 당월 단가대장의 제조금액 ÷ 생산중량이고, 당월 대장에 없는 품목은 원가를 비워 둡니다.';
   } else {
     const fl = flagsOf(R);
     h = fl.length ? `<table><thead><tr><th class="t">구분</th><th class="t">코드</th><th class="t">로트·공장</th><th class="t">제품명</th><th class="t">내용</th><th>금액</th></tr></thead><tbody>` +
@@ -616,7 +616,7 @@ function renderReview() {
     const lots = R.lots.filter(x => x.제품코드 === o.제품코드);
     const ships = R.prev.filter(x => x.제품코드 === o.제품코드);
     h += `<div class="rv-head"><span class="tag pt">${it.kind}</span><h4>${esc(o.제품명)}</h4><span class="code">${esc(o.제품코드)} · ${esc(o.구분)}</span>${o.flags.map(x => `<span class="flag">${esc(x)}</span>`).join(' ')}</div>
-    <div class="rv-calc"><div class="res">기말 재고 ${won(o.현재고)}개 · ${won(o.현재고금액)}원${o.재료비추정 != null ? ` · 재료비 추정 ${won(o.재료비추정)}원` : ''}</div>
+    <div class="rv-calc"><div class="res">기말 재고 ${won(o.현재고)}개 · ${won(o.현재고금액)}원${o.재료비추정 != null ? ` · 로트 잔량 재료비 ${won(o.재료비추정)}원` : ''}</div>
     <div class="eq">FCO: 전재고 ${won(o.전재고)} + 입고 ${won(o.입고)} − 출고 ${won(o.출고)} = 현재고 ${won(o.현재고)}</div>
     ${o.잔량로트 ? `<div class="eq">로트목록 당월 생산 잔량: ${esc(o.잔량로트)}</div>` : ''}</div>
     <div class="rv-grid">

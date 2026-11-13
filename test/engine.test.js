@@ -60,6 +60,15 @@ test('로트목록에 없는 평택 출하(작업지시 10-30) → 전월 생산
   near(o.매출, 390000, '매출'); near(o.원가, 560000, '56kg × 10,000'); near(o.원료, 400000, '원료');
 });
 
+test('추정하지 않음: 생산월 단가대장이 없으면 원가 빈칸(당월 대장으로 대신하지 않음)', () => {
+  const wb = fixtureWorkbook(); wb.SheetNames = wb.SheetNames.filter(n => !n.startsWith('8월'));
+  const R2 = Engine.run(bookFromWorkbook(XLSX, wb));
+  const t4 = R2.lots.find(o => o.로트번호 === 'T004'), t5 = R2.prev.find(o => o.로트번호 === 'T005');
+  assert.equal(t4.원가, null); assert.equal(t5.원가, null);
+  assert.ok(t4.flags.some(f => f.includes('원가 빈칸'))); assert.ok(t5.flags.some(f => f.includes('원가 빈칸')));
+  near(R2.미확인.평택, 975000 + 390000, '원가 미확인 평택 매출');
+});
+
 test('화성 품목: 출하중량 × kg당 제조원가', () => {
   const g = R.hw.find(x => x.품목코드 === '1BB0000001');
   near(g.매출, 7500000, '매출'); near(g.중량, 150, '중량'); near(g.kg당원가, 10000, 'kg당 원가');

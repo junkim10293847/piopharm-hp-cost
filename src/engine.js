@@ -3,7 +3,7 @@
 //  · 로트는 항상 제품코드 + 로트번호로 찾음 (로트 이름을 고치지 않아도 됨)
 //  · 원가는 출하된 수량만: 출하량 × (당월 단가대장 제조금액 ÷ 그 제품 로트들의 생산수량 합)
 //  · 조정비율·규격 해석·자재투입 로트 조회는 쓰지 않음
-//  · 당월 단가대장에 없는 로트(전월 생산)는 이전 달 단가대장의 kg당 원가 × 출하중량
+//  · 이전 생산분은 생산월(작업지시 지시월·다음 달) 단가대장의 kg당 원가 × 출하중량. 그 대장이 없으면 원가 빈칸(추정하지 않음)
 //  · 로트목록에 없는 평택 출하(작업지시 10-30 또는 비오팜2공장)는 '전월 생산 출하'로 따로 계산
 // book = { sheets: [ { name, rows: any[][] (A1 기준), formula(r,c) } ] }
 // opts = { month, ratio: {생산구분: 비율} }
@@ -51,9 +51,6 @@ const Engine = (() => {
   }
   const sheetMonth = name => { const m = name.match(/(\d{1,2})\s*월/); return m ? Number(m[1]) : null; };
   const prevM = m => (m === 1 ? 12 : m - 1);
-  const before = (a, m) => { // a가 m보다 이전 달인지 (12월 → 1월 넘김 고려, 6개월 창)
-    const d = (m - a + 12) % 12; return d >= 1 && d <= 6;
-  };
 
   // ---------- 로트목록 ----------
   // 지원 형식: ① 미가공 「9월」 시트(생산공장·포장공장) ② 기존 「당월 생산」(평택비율 텍스트, 전월 구간) ③ 「로트목록」 표
@@ -142,8 +139,13 @@ const Engine = (() => {
       }
     }
     const led = (p, m) => Lg.get(p + '|' + m) || null;
-    const ledBefore = (p, m) => [...Lg.values()].filter(g => g.p === p && before(g.m, m)).sort((a, b) => ((m - a.m + 12) % 12) - ((m - b.m + 12) % 12))[0] || null;
-    const ledNear = (p, m) => led(p, m) || ledBefore(p, m);
+    // 이전 생산분의 생산월 단가대장: 작업지시 지시월 또는 그다음 달(완성월) 대장에 그 제품이 있을 때만. 추정하지 않음
+    const woMonth = w => { const t = T(w['지시일자']); const m = t.match(/^\d{4}[.\-/](\d{1,2})/); return m ? Number(m[1]) : null; };
+    const ledProd = (p, wos, cur) => {
+      const ms = [...new Set(wos.map(woMonth).filter(Boolean))];
+      for (const m of ms) for (const c of [m, m === 12 ? 1 : m + 1]) { if (c === cur) continue; const g = led(p, c); if (g) return g; }
+      return null;
+    };
     // FCO (선택)
     let Fco = null;
     const fs = sheetBy(book, 'FCO', true);
@@ -157,7 +159,7 @@ const Engine = (() => {
         Fco.set(p, o);
       }
     }
-    return { OdAll, Od, Wo, Sh, Lg, led, ledBefore, ledNear, Fco };
+    return { OdAll, Od, Wo, Sh, Lg, led, ledProd, Fco };
   }
 
   const isPtWo = w => T(w['지시번호']).startsWith(PT_WO);
@@ -171,14 +173,15 @@ const Engine = (() => {
 
   // ---------- 평택 로트목록 로트 ----------
   function calcLots(lots, src, opts) {
-    const { Od, OdAll, Wo, Sh, led, ledBefore } = src;
+    const { Od, OdAll, Wo, Sh, led, ledProd } = src;
     const base = lots.map(l => {
       const key = l.제품코드 + '|' + l.로트번호;
       const K = RATIO.hasOwnProperty(l.생산구분) ? (opts.ratio[l.생산구분] ?? RATIO[l.생산구분]) : null;
       const sh = Sh.filter(x => x.key === key);
       const shipQty = sh.reduce((a, x) => a + x.qty, 0), shipW = sh.reduce((a, x) => a + x.w, 0), shipAmt = sh.reduce((a, x) => a + x.amt, 0);
       const cur = led(l.제품코드, opts.month);
-      const prev = cur ? null : ledBefore(l.제품코드, opts.month);
+      const woL = Wo.filter(x => x.key === key);
+      const prev = cur ? null : ledProd(l.제품코드, woL, opts.month);
       return { ...l, key, K, sh, shipQty, shipW, shipAmt, cur, prev,
         wo: Wo.filter(x => x.key === key), od: Od.filter(x => x.key === key), odAll: OdAll.filter(x => x.key === key),
         생산수량: Math.max(Z(l.완료수량), shipQty) };
@@ -210,7 +213,7 @@ const Engine = (() => {
           o.원가월 = r.prev.m; o.개당원가 = r.shipQty ? (r.shipW * r.prev.제조금액 / r.prev.pw) / r.shipQty : 0;
           o.Full원가 = r.shipW * r.prev.제조금액 / r.prev.pw;
           o.Full원료 = r.prev.제조금액 ? o.Full원가 * r.prev.원료 / r.prev.제조금액 : 0;
-        } else { o.원가월 = null; o.Full원가 = null; o.Full원료 = null; o.flags.push('생산월 단가대장 없음'); }
+        } else { o.원가월 = null; o.Full원가 = null; o.Full원료 = null; o.flags.push(r.wo.length ? '생산월 단가대장 없음 → 원가 빈칸' : '작업지시 없음 → 생산월 몰라 원가 빈칸'); }
       } else {
         o.원가방식 = '출하 없음'; o.원가월 = null; o.Full원가 = 0; o.Full원료 = 0;
         const om = [...new Set(r.odAll.map(x => x.월).filter(m => m != null))];
@@ -247,14 +250,13 @@ const Engine = (() => {
     }
     return [...groups.values()].map(g => {
       const shipQty = g.sh.reduce((a, x) => a + x.qty, 0), shipW = g.sh.reduce((a, x) => a + x.w, 0), shipAmt = g.sh.reduce((a, x) => a + x.amt, 0);
-      const c = src.ledBefore(g.제품코드, opts.month) || src.led(g.제품코드, opts.month);
+      const c = src.ledProd(g.제품코드, g.wo, opts.month);
       const o = { ...g, 구분: '전월 생산', K: 1, 생산구분: '평택', shipQty, shipW, shipAmt, flags: [], od: src.Od.filter(x => x.key === g.key) };
       o.근거 = [g.wo.some(isPtWo) ? `작업지시 ${PT_WO}` : null, g.sh.some(x => T(x['현장명칭']) === PT_SITE) ? PT_SITE : null].filter(Boolean).join(' · ');
       o.지시일자 = g.wo.map(w => T(w['지시일자'])).filter(Boolean).join(', ');
       if (c && c.pw && shipW) {
         o.원가월 = c.m; o.원가 = shipW * c.제조금액 / c.pw; o.원료 = c.제조금액 ? o.원가 * c.원료 / c.제조금액 : 0; o.자재 = o.원가 - o.원료;
-        if (c.m === opts.month) o.flags.push('당월 단가대장으로 계산(생산월 대장 없음)');
-      } else { o.원가월 = null; o.원가 = null; o.원료 = null; o.자재 = null; o.flags.push('생산월 단가대장 없음 → 전월 단가대장 칸 확인'); }
+      } else { o.원가월 = null; o.원가 = null; o.원료 = null; o.자재 = null; o.flags.push(g.wo.length ? `생산월(${[...new Set(g.wo.map(w => T(w['지시일자']).slice(0, 7)))].join(', ')}) 단가대장 없음 → 원가 빈칸` : '작업지시 없음 → 원가 빈칸'); }
       o.매출 = shipAmt; o.원가율 = (o.원가 != null && shipAmt) ? o.원가 / shipAmt : null;
       o.cur = c;
       return o;
@@ -273,9 +275,9 @@ const Engine = (() => {
     }
     const out = [];
     for (const g of groups.values()) {
-      const c = src.ledNear(g.품목코드, opts.month);
+      const c = src.led(g.품목코드, opts.month);
       let unit = null, cost = null, raw = null, mat = null, flag = null;
-      if (!c) flag = g.품목코드.startsWith('1') ? '단가대장 없음' : '제품 외 품목(원가 대상 아님)';
+      if (!c) flag = g.품목코드.startsWith('1') ? '당월 단가대장 없음 → 원가 빈칸' : '제품 외 품목(원가 대상 아님)';
       else if (!c.pw) flag = '단가대장 생산중량 없음';
       else if (!g.중량) flag = '출하중량 없음';
       else { unit = c.제조금액 / c.pw; cost = g.중량 * unit; raw = c.제조금액 ? cost * c.원료 / c.제조금액 : 0; mat = cost - raw; }
@@ -315,14 +317,14 @@ const Engine = (() => {
         if (f.입고 > 0 && !src.led(f.품목코드, opts.month)) flags.push('당월 입고인데 단가대장 없음');
         rows.push({ 제품코드: f.품목코드, 제품명: f.품목명, 규격: f.규격, 공장: plantOf(f.품목코드), 구분: kind,
           전재고: f.전재고, 입고: f.입고, 출고: f.출고, 현재고: f.현재고, 현재고금액: f.현재고금액, 단가: unit,
-          재료비추정: e ? e.재료비 : (f.입고 > 0 && src.led(f.품목코드, opts.month) ? src.led(f.품목코드, opts.month).제조금액 * Math.min(1, f.현재고 / f.입고) : null),
-          잔량로트: e ? e.로트.join(', ') : '', 출처: 'FCO', fco: f, led: src.ledNear(f.품목코드, opts.month), flags });
+          재료비추정: e ? e.재료비 : null,
+          잔량로트: e ? e.로트.join(', ') : '', 출처: 'FCO', fco: f, led: src.led(f.품목코드, opts.month), flags });
       }
     } else {
       for (const [p, e] of est) {
         const o = lots.find(x => x.제품코드 === p);
-        rows.push({ 제품코드: p, 제품명: o.제품명, 규격: '', 공장: '평택', 구분: '당월 생산·미출고(추정)', 현재고: e.수량, 현재고금액: null,
-          재료비추정: e.재료비, 잔량로트: e.로트.join(', '), 출처: '단가대장 추정', led: src.led(p, opts.month), flags: ['FCO 칸을 넣으면 실제 재고액으로 바뀝니다'] });
+        rows.push({ 제품코드: p, 제품명: o.제품명, 규격: '', 공장: '평택', 구분: '당월 생산·미출고(로트목록 잔량)', 현재고: e.수량, 현재고금액: null,
+          재료비추정: e.재료비, 잔량로트: e.로트.join(', '), 출처: '로트목록 잔량', led: src.led(p, opts.month), flags: ['FCO 칸이 비어 있어 재고액 없음(재료비만)'] });
       }
     }
     return { rows: rows.sort((a, b) => Z(b.현재고금액 ?? b.재료비추정) - Z(a.현재고금액 ?? a.재료비추정)), hasFco: !!src.Fco };
