@@ -158,11 +158,22 @@ header a{color:var(--pt);text-underline-offset:3px;white-space:nowrap}
 .tools .sp{margin-left:auto}
 tr.click{cursor:pointer}
 tr.click:hover td{background:var(--bg)}
+/* 오류 창 */
+dialog.err{border:1px solid var(--warn);border-radius:10px;padding:0;max-width:min(460px,calc(100vw - 32px));background:var(--surface);color:var(--fg)}
+dialog.err::backdrop{background:rgba(0,0,0,.35)}
+dialog.err h2{margin:0;padding:14px 18px;font-size:15px;color:var(--warn);border-bottom:1px solid var(--line)}
+dialog.err p{margin:0;padding:14px 18px;font-size:13.5px;white-space:pre-wrap;word-break:break-word}
+dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 
+<dialog class="err" id="errDlg" aria-labelledby="errTitle">
+  <h2 id="errTitle">오류</h2>
+  <p id="errMsg"></p>
+  <div class="act"><button class="btn primary" type="button" id="errOk">확인</button></div>
+</dialog>
 <div class="wrap">
   <header>
     <h1>화성·평택 매출원가 <span class="ver" id="ver"></span></h1>
@@ -305,6 +316,15 @@ let BOOK = null, RES = null, FILENAME = '', TAB = 'rv';
 
 // ---------- 자료 칸 ----------
 function setStatus(msg, err) { $('status').textContent = msg || ''; $('status').classList.toggle('err', !!err); }
+function showError(title, msg) {
+  setStatus(`${title}: ${msg}`, true);
+  $('errTitle').textContent = title; $('errMsg').textContent = msg;
+  const d = $('errDlg');
+  if (d.open) return;
+  if (typeof d.showModal === 'function') d.showModal(); else d.setAttribute('open', '');
+  $('errOk').focus();
+}
+$('errOk').onclick = () => { const d = $('errDlg'); if (typeof d.close === 'function') d.close(); else d.removeAttribute('open'); };
 const FILLED = {};            // 슬롯id → { wb, sheet, file }
 let TARGET = null;            // 파일 선택 창을 연 칸 (null = 통합 파일)
 let MONTH_SET = false;        // 사용자가 당월을 직접 고쳤는지
@@ -328,7 +348,7 @@ async function putSlot(id, f) {
     }
     FILLED[id] = { wb, file: f.name, sheet: pickSheet(XLSX, wb, slot, curMonth(), false) };
     refresh();
-  } catch (e) { console.error(e); setStatus(`${f.name}: 읽지 못했습니다 — ${e.message || e}`, true); }
+  } catch (e) { console.error(e); showError('파일을 읽지 못했습니다', `${f.name}\n${e.message || e}`); }
 }
 // 통합 파일: 맞는 시트를 찾아 칸마다 배치
 async function putAll(f) {
@@ -340,7 +360,7 @@ async function putAll(f) {
     let n = 0;
     for (const slot of SLOTS) { const sh = pickSheet(XLSX, wb, slot, curMonth(), true); if (sh) { FILLED[slot.id] = { wb, file: f.name, sheet: sh }; n++; } }
     refresh(n ? '' : `${f.name}: 칸에 맞는 시트를 찾지 못했습니다. 칸마다 직접 넣어 주세요.`);
-  } catch (e) { console.error(e); setStatus(`${f.name}: 읽지 못했습니다 — ${e.message || e}`, true); }
+  } catch (e) { console.error(e); showError('파일을 읽지 못했습니다', `${f.name}\n${e.message || e}`); }
 }
 
 $('file').onchange = e => { const f = e.target.files[0]; e.target.value = ''; TARGET ? putSlot(TARGET, f) : putAll(f); };
@@ -419,7 +439,7 @@ function compute() {
   } catch (e) {
     console.error(e); RES = null;
     $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true;
-    setStatus('계산하지 못했습니다: ' + (e.message || e), true);
+    showError('계산 오류', e.message || String(e));
   }
 }
 
@@ -636,7 +656,7 @@ $('dl').onclick = () => {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     setStatus('엑셀 파일을 내려받았습니다.');
-  } catch (e) { console.error(e); setStatus('엑셀을 만들지 못했습니다: ' + (e.message || e), true); }
+  } catch (e) { console.error(e); showError('엑셀을 만들지 못했습니다', e.message || String(e)); }
 };
 </script>
 </body>
