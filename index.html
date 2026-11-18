@@ -503,6 +503,7 @@ async function putSlot(id, f) {
     }
     FILLED[id] = { wb, file: f.name, sheet: pickSheet(XLSX, wb, slot, curMonth(), false) };
     refresh();
+    slotToArch([id]);
   } catch (e) { console.error(e); showError('파일을 읽지 못했습니다', `${f.name}\n${e.message || e}`); }
 }
 // 통합 파일: 맞는 시트를 찾아 칸마다 배치
@@ -519,6 +520,7 @@ async function putAll(f) {
     for (const slot of SLOTS) { const sh = pickSheet(XLSX, wb, slot, curMonth(), true); if (sh) { FILLED[slot.id] = { wb, file: f.name, sheet: sh }; n++; } }
     refresh(n ? '' : `${f.name}: 칸에 맞는 시트를 찾지 못했습니다. 칸마다 직접 넣어 주세요.`);
     if (moved && n) $('status').textContent += ` · 파일의 출하대장이 ${+mm[1]}월이라 당월을 바꿨습니다(${moved})`;
+    if (n) slotToArch(Object.keys(FILLED).filter(k => FILLED[k].wb === wb));
   } catch (e) { console.error(e); showError('파일을 읽지 못했습니다', `${f.name}\n${e.message || e}`); }
 }
 
@@ -537,6 +539,9 @@ function archKeyFor(slot, ym) {
 const ymNow = () => Archive.ymFromMonth(curMonth(), new Date());
 // 칸이 비어 있으면 보관함에서 그 달(전월 칸은 전월) 자료를 끌어옴
 const archRec = (slot, ym) => (typeof ARCH === 'object' && ARCH ? ARCH[archKeyFor(slot, ym)] || null : null);
+// 지금 달에 보관함에서 끌어온 칸의 서명(어느 자료·언제 저장) — 보관함이 바뀌면 다시 계산
+const archSig = ym => SLOTS.filter(s => !FILLED[s.id]).map(s => { const r = archRec(s, ym); return r ? `${s.id}=${r.savedAt}` : ''; }).join('|');
+let ARCH_SIG = '';
 function slotState(ym) {
   const B = bookFromSlots(XLSX_OK() ? XLSX : null, FILLED, curMonth());
   const pulled = SLOTS.filter(s => !FILLED[s.id] && archRec(s, ym)).map(s => s.id);
@@ -672,7 +677,7 @@ $('slots').onclick = e => {
   if (t.dataset.pick) { TARGET = t.dataset.pick; $('file').click(); }
   if (t.dataset.rm) { delete FILLED[t.dataset.rm]; refresh(); }
 };
-$('slots').onchange = e => { const id = e.target.dataset.sheet; if (id) { FILLED[id].sheet = e.target.value; refresh(); } };
+$('slots').onchange = e => { const id = e.target.dataset.sheet; if (id) { FILLED[id].sheet = e.target.value; refresh(); slotToArch([id]); } };
 const slotOf = e => e.target.closest && e.target.closest('.slot');
 ['dragenter', 'dragover'].forEach(t => $('slots').addEventListener(t, e => { const el = slotOf(e); if (el) { e.preventDefault(); el.classList.add('over'); } }));
 $('slots').addEventListener('dragleave', e => { const el = slotOf(e); if (el && !el.contains(e.relatedTarget)) el.classList.remove('over'); });
@@ -688,6 +693,7 @@ function refresh(err) {
   FILENAME = files.join(', ');
   $('clear').hidden = !files.length;
   const ym = ymNow(), st = slotState(ym);
+  ARCH_SIG = archSig(ym);
   if (!st.missing.length && !B.warn.length) {
     if (!files.length) { computeFromArchive(ym); if (err) setStatus(err, true); return; }   // 전부 보관함 자료
     if (st.pulled.length) {                                                               // 파일 + 보관함
@@ -700,6 +706,30 @@ function refresh(err) {
   const got = st.pulled.length ? ` · 보관함에서 ${st.pulled.length}칸 가져옴` : '';
   setStatus(err || (B.warn.length ? '빨간 표시 칸을 확인해 주세요. 다른 시트를 고르거나 맞는 파일로 바꾸면 됩니다.'
     : files.length || st.pulled.length ? '남은 칸: ' + st.missing.join(', ') + got : ''), !!err || !!B.warn.length);
+}
+// 칸에 넣은 파일 → 보관함에 바로 저장 (칸의 달 기준). 보관함이 바뀌면 칸도 따라 바뀜(archRender → refresh)
+const SLOT_KIND = { lots: 'lots', ship: 'ship', order: 'order', wo: 'wo', ledCur: 'led', ledPrev: 'led', ledPrev2: 'led', fco: 'fco' };
+async function slotToArch(ids) {
+  if (!ids.length || typeof IDB === 'undefined') return;
+  const ym = ymNow(), recs = [], skipped = [];
+  for (const id of ids) {
+    const f = FILLED[id]; if (!f) continue;
+    const B = bookFromSlots(XLSX, { [id]: f }, curMonth());
+    if (B.warn.length || !B.sheets.length) { skipped.push(SLOT_NAME[id]); continue; }
+    const res = Archive.ingestSheets(B.sheets, f.file, new Date(), { ...RULES, forceKind: SLOT_KIND[id] });
+    // 칸에 넣은 자료는 그 칸의 달로 저장 (생산귀속·시트 월이 없는 로트목록·FCO)
+    res.needMonth.forEach(r => { if (r.kind === 'lots' || r.kind === 'fco') { r.ym = id === 'fco' || id === 'lots' ? ym : null; if (r.ym) { r.key = `${r.kind}:${r.ym}`; res.records.push(r); } } });
+    recs.push(...res.records);
+    if (!res.records.length) skipped.push(SLOT_NAME[id]);
+  }
+  if (!recs.length) { if (skipped.length) $('status').textContent += ` · 보관함에 저장 못 함: ${skipped.join(', ')}`; return; }
+  try {
+    const log = await archSave(recs);
+    const ok = log.filter(r => !r.guard), bad = log.filter(r => r.guard);
+    const t = ok.map(r => `${kindName(r.kind).replace('(최신본)', '')}${r.ym ? ' ' + Number(r.ym.slice(5)) + '월' : ''}`);
+    if (t.length) $('status').textContent += ` · 보관함에 저장: ${[...new Set(t)].join(', ')}`;
+    if (bad.length) $('status').textContent += ` · 보관함 그대로 둠: ${bad.map(r => kindName(r.kind)).join(', ')}(기존보다 훨씬 작은 자료)`;
+  } catch (e) { console.error(e); showError('보관함에 저장하지 못했습니다', e.message || String(e)); }
 }
 // 계산하기: 칸 파일 → 보관함 순서로 지금 달을 (다시) 계산
 $('calcBtn').onclick = () => {
@@ -782,7 +812,7 @@ async function archDelete(key) {
 function archRender() {
   archSlotsRender();
   // 계산 전이면 보관함 변화를 칸에 바로 반영 (다 모이면 계산)
-  if (!RES) refresh();
+  if (!RES || archSig(ymNow()) !== ARCH_SIG) refresh();
   histRender();
   {
     const yms = [...new Set(Object.values(ARCH).filter(r => r.ym).map(r => r.ym))].sort().reverse();
@@ -887,6 +917,7 @@ function computeFromArchive(ym) {
   for (const k in FILLED) delete FILLED[k];
   $('month').value = Number(ym.slice(5)); MONTH_SET = true;
   renderSlots();
+  ARCH_SIG = archSig(ym);
   ARCH_USE = ym; renderSlots();
   BOOK = { sheets: b.book.sheets, history: b.history, fromArchive: ym, ledMonths: b.ledMonths };
   FILENAME = `보관함 ${ym}`;
@@ -1086,7 +1117,6 @@ function compute() {
     buildItems();
     $('dl').disabled = false;
     setStatus(`${RES.opts.month}월 · 평택 당월 로트 ${RES.lots.length}개(${lotSrc()}) · 전월 생산 출하 ${RES.prev.length}개 · 화성 품목 ${RES.hw.length}개 계산 완료${RES.archNote ? ' · ' + RES.archNote : ''}`);
-    if (!BOOK.fromArchive) archAutoSave();
     MONTHS[ym] = { filled: { ...FILLED }, res: RES, book: BOOK, file: FILENAME };
     calcLog(ym, ex);
     render(); histRender();
