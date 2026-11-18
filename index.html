@@ -230,7 +230,7 @@ tr.click:hover td{background:var(--bg)}
 .csrc .i{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--surface);min-width:0}
 .csrc .i .l{font-weight:600}
 .csrc .i .w{display:block;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.csrc .tagA{display:inline-block;border-radius:4px;padding:0 5px;font-size:11px;margin-right:4px;background:var(--pt);color:#fff}
+.slot .tagA,.csrc .tagA{display:inline-block;border-radius:4px;padding:0 5px;font-size:11px;margin-right:4px;background:var(--pt);color:#fff}
 .csrc .tagF{display:inline-block;border-radius:4px;padding:0 5px;font-size:11px;margin-right:4px;border:1px solid var(--fg)}
 .csrc .i.st{border-color:var(--warn)}
 .csrc .x{color:var(--warn)}
@@ -535,6 +535,14 @@ function archKeyFor(slot, ym) {
   return { lots: `lots:${ym}`, ship: `ship:${ym}`, order: 'order', wo: 'wo', ledCur: `led:${ym}`, ledPrev: `led:${pm(ym)}`, ledPrev2: `led:${pm(pm(ym))}`, fco: `fco:${ym}` }[slot.id];
 }
 const ymNow = () => Archive.ymFromMonth(curMonth(), new Date());
+// 칸이 비어 있으면 보관함에서 그 달(전월 칸은 전월) 자료를 끌어옴
+const archRec = (slot, ym) => (typeof ARCH === 'object' && ARCH ? ARCH[archKeyFor(slot, ym)] || null : null);
+function slotState(ym) {
+  const B = bookFromSlots(XLSX_OK() ? XLSX : null, FILLED, curMonth());
+  const pulled = SLOTS.filter(s => !FILLED[s.id] && archRec(s, ym)).map(s => s.id);
+  const missing = SLOTS.filter(s => !s.optional && !FILLED[s.id] && !pulled.includes(s.id)).map(s => s.label + (s.kind === '단가대장' ? ' (당월)' : ''));
+  return { B, pulled, missing };
+}
 function stashMonth() {
   const ym = ymNow();
   if (Object.keys(FILLED).length || RES) MONTHS[ym] = { filled: { ...FILLED }, res: RES, book: BOOK, file: FILENAME };
@@ -562,6 +570,7 @@ $('month').oninput = $('month').onchange = () => {
 };
 $('mPrev').onclick = () => gotoMonth(curMonth() === 1 ? 12 : curMonth() - 1);
 $('mNext').onclick = () => gotoMonth(curMonth() === 12 ? 1 : curMonth() + 1);
+const FROM_TXT = { archive: '보관함 자료', mixed: '칸 파일 + 보관함 자료', file: '칸에 넣은 파일' };
 const fmtAt = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
 const SLOT_NAME = { lots: '평택 로트목록', ship: '출하대장', order: '발주 현황', wo: '작업지시현황', ledCur: '단가대장(당월)', ledPrev: '단가대장(전월)', ledPrev2: '단가대장(전전월)', fco: 'FCO 수불' };
 // 계산할 때 쓴 자료를 기록 (자료 자체가 아니라 이름·행 수·저장 시각만 — 계산에는 쓰지 않음)
@@ -574,7 +583,7 @@ async function calcLog(ym, ex) {
         const ws = f.wb.Sheets[f.sheet] || f.wb.Sheets[String(f.sheet).trim()];
         const n = ws && ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']).e.r : null;
         items.push({ id: slot.id, how: 'file', src: f.file, sheet: f.sheet, n });
-      } else if (ar && (arch || (slot.id.startsWith('led') && ex.ledMonths.includes(Number(ar.ym.slice(5)))))) {
+      } else if (ar && (arch || (BOOK.pulled || []).includes(slot.id) || (slot.id.startsWith('led') && ex.ledMonths.includes(Number(ar.ym.slice(5)))))) {
         items.push({ id: slot.id, how: 'archive', akey: ak, src: ar.src, n: ar.n, saved: ar.savedAt, ym: ar.ym || null });
       }
     }
@@ -583,7 +592,7 @@ async function calcLog(ym, ex) {
       .concat(arch ? [] : ex.ledMonths.map(m => Object.keys(ARCH).find(k => k.startsWith('led:') && Number(k.slice(-2)) === m)).filter(k => k && !used.has(k)));
     moreLed.forEach(k => items.push({ id: 'ledMore', how: 'archive', akey: k, src: ARCH[k].src, n: ARCH[k].n, saved: ARCH[k].savedAt, ym: ARCH[k].ym }));
     const S = totals(RES);
-    const rec = { key: 'calc:' + ym, kind: 'calc', ym, at: new Date().toISOString(), ver: Report.VERSION, from: arch ? 'archive' : 'file', items, lotHist: ex.lotHist || 0,
+    const rec = { key: 'calc:' + ym, kind: 'calc', ym, at: new Date().toISOString(), ver: Report.VERSION, from: arch ? 'archive' : (BOOK.pulled || []).length ? 'mixed' : 'file', items, lotHist: ex.lotHist || 0,
       rules: RES.rulesNote || '', tot: { pt: S.P.매출, ptCost: S.P.원료 + S.P.자재, ptPrev: S.P전월.원료 + S.P전월.자재, hw: S.H.매출, stock: stockTotal(ptStock()) } };
     CALC[rec.key] = rec; histRender();
     await IDB.put([rec]);
@@ -608,7 +617,7 @@ function srcRender() {
       : `<span class="tagF">파일</span>시트 ${won(i.n)}행${i.sheet ? ' · 「' + esc(i.sheet) + '」' : ''}`;
     return `<div class="i${st ? ' st' : ''}"><span class="l">${lab}</span><span class="w">${w}</span><span class="w" title="${esc(i.src)}">${esc(i.src)}</span>${st ? `<span class="w x">${now ? '계산 뒤에 보관함 자료가 바뀜' : '보관함에서 빠짐'}</span>` : ''}</div>`;
   };
-  el.innerHTML = `<div class="h"><b>${Number(ym.slice(5))}월 계산 근거</b><span>${fmtAt(c.at)} 계산 · ${c.from === 'archive' ? '보관함 자료' : '칸에 넣은 파일'} · ${esc(c.ver)}</span>
+  el.innerHTML = `<div class="h"><b>${Number(ym.slice(5))}월 계산 근거</b><span>${fmtAt(c.at)} 계산 · ${FROM_TXT[c.from] || '칸에 넣은 파일'} · ${esc(c.ver)}</span>
     <span>평택 ${eok(c.tot.pt)} · 원가 ${eok(c.tot.ptCost)} · 화성 ${eok(c.tot.hw)} · 평택 재고 ${eok(c.tot.stock)}</span>
     ${c.lotHist ? `<span class="meta">이전 달 로트목록 ${won(c.lotHist)}개로 생산월 확인</span>` : ''}${c.rules ? `<span class="meta">바꾼 규칙: ${esc(c.rules)}</span>` : ''}
     ${!live ? `<span class="meta">${archReady(ym) ? '' : '지난 계산 기록입니다 — 결과를 다시 보려면 같은 자료를 칸에 넣어 주세요.'}</span>` : ''}
@@ -624,8 +633,8 @@ function histRender() {
   const list = [...yms].sort();
   $('hist').innerHTML = list.length ? '계산 내역 ' + list.map(ym => {
     const c = CALC['calc:' + ym];
-    const mark = c ? (c.from === 'archive' ? '보관함' : '파일') : '보관함 자료 있음';
-    const tip = c ? `${fmtAt(c.at)} 계산 · ${c.from === 'archive' ? '보관함 자료' : '칸에 넣은 파일'} · 평택 ${eok(c.tot.pt)}` : '아직 계산 안 함 — 누르면 보관함 자료로 계산';
+    const mark = c ? (({ archive: '보관함', mixed: '파일+보관함' }[c.from] || '파일')) : '보관함 자료 있음';
+    const tip = c ? `${fmtAt(c.at)} 계산 · ${FROM_TXT[c.from] || '칸에 넣은 파일'} · 평택 ${eok(c.tot.pt)}` : '아직 계산 안 함 — 누르면 보관함 자료로 계산';
     return `<button type="button" class="chip2${ym === cur ? ' cur' : ''}" data-goto="${ym}" title="${esc(tip)}">${Number(ym.slice(5))}월<span class="n">${c ? '✓ ' : ''}${mark}</span></button>`;
   }).join('') : '';
   srcRender();
@@ -642,8 +651,8 @@ function renderSlots() {
     const w = B.warn.find(x => x.slot === slot.id);
     const title = (slot.optional ? '' : '<span class="req-b">필수</span>') + slot.label + (sm ? ` · ${sm}월` : '') + (slot.optional ? ' <span class="no">(선택)</span>' : '');
     let body;
-    const ak = ARCH_USE ? archKeyFor(slot, ARCH_USE) : null, ar = ak && typeof ARCH === 'object' ? ARCH[ak] : null;
-    if (!f && ar) body = `<div class="slot-act"><span class="slot-file" title="${esc(ar.src)}">보관함 자료 사용 · ${won(ar.n)}행</span><button class="btn" type="button" data-pick="${slot.id}">파일로 바꾸기</button></div>`;
+    const ar = !f ? archRec(slot, ymNow()) : null;
+    if (ar) body = `<div class="slot-act"><span class="slot-file" title="${esc(ar.src)}"><span class="tagA">보관함</span>${ar.ym ? Number(ar.ym.slice(5)) + '월 · ' : '최신본 · '}${won(ar.n)}행</span><button class="btn" type="button" data-pick="${slot.id}">파일로 바꾸기</button></div>`;
     else if (!f) body = `<div class="slot-act"><button class="btn" type="button" data-pick="${slot.id}">파일 선택</button><span class="slot-hint">또는 여기로 끌어다 놓기</span></div>`;
     else {
       const names = f.wb.SheetNames;
@@ -678,23 +687,30 @@ function refresh(err) {
   const files = [...new Set(Object.values(FILLED).map(f => f.file))];
   FILENAME = files.join(', ');
   $('clear').hidden = !files.length;
-  if (!B.missing.length && !B.warn.length) { BOOK = B; compute(); if (err) setStatus(err, true); return; }
+  const ym = ymNow(), st = slotState(ym);
+  if (!st.missing.length && !B.warn.length) {
+    if (!files.length) { computeFromArchive(ym); if (err) setStatus(err, true); return; }   // 전부 보관함 자료
+    if (st.pulled.length) {                                                               // 파일 + 보관함
+      const b = Archive.buildBook(ARCH, ym), have = new Set(B.sheets.map(x => x.name));
+      BOOK = { sheets: [...B.sheets, ...b.book.sheets.filter(x => !have.has(x.name))], fileSheets: B.sheets, history: b.history, pulled: st.pulled, ledMonths: b.ledMonths };
+    } else BOOK = B;
+    compute(); if (err) setStatus(err, true); return;
+  }
   $('result').hidden = true; $('empty').hidden = false; $('dl').disabled = true;
+  const got = st.pulled.length ? ` · 보관함에서 ${st.pulled.length}칸 가져옴` : '';
   setStatus(err || (B.warn.length ? '빨간 표시 칸을 확인해 주세요. 다른 시트를 고르거나 맞는 파일로 바꾸면 됩니다.'
-    : files.length ? '남은 칸: ' + B.missing.join(', ') : ''), !!err || !!B.warn.length);
+    : files.length || st.pulled.length ? '남은 칸: ' + st.missing.join(', ') + got : ''), !!err || !!B.warn.length);
 }
 // 계산하기: 칸 파일 → 보관함 순서로 지금 달을 (다시) 계산
 $('calcBtn').onclick = () => {
   const m = curMonth(), ym = ymNow();
-  const B = bookFromSlots(XLSX_OK() ? XLSX : null, FILLED, m);
-  const hasFiles = Object.keys(FILLED).length > 0;
-  if (hasFiles && !B.missing.length && !B.warn.length) { delete MONTHS[ym]; refresh(); return; }
-  if ((!hasFiles || ARCH_USE === ym) && archReady(ym)) { delete MONTHS[ym]; computeFromArchive(ym); return; }
+  const { B, missing } = slotState(ym);
+  if (!missing.length && !B.warn.length) { delete MONTHS[ym]; refresh(); return; }
   if (B.warn.length) { showError('계산할 수 없습니다', '빨간 표시 칸의 시트에 필요한 열이 없습니다. 다른 시트를 고르거나 맞는 파일로 바꿔 주세요.'); return; }
-  const inArch = archReady(ym) ? `\n\n${m}월 자료는 보관함에 모두 있습니다. 칸에 넣은 파일을 비우고(모두 비우기) 다시 누르면 보관함 자료로 계산합니다.` : '';
+  const inArch = '';
   const other = Object.keys(ARCH).filter(k => k.startsWith('lots:')).map(k => k.slice(5)).filter(y => y !== ym && archReady(y)).sort();
   const hintO = other.length ? `\n\n보관함으로 바로 계산할 수 있는 달: ${other.map(y => Number(y.slice(5)) + '월').join(', ')} — ◀ ▶나 계산 내역에서 고르세요.` : '';
-  showError(`${m}월을 계산할 자료가 부족합니다`, `비어 있는 필수 칸: ${B.missing.join(', ')}${inArch || `\n\n칸에 파일을 넣거나, 보관함에 ${m}월 로트목록·출하대장·단가대장과 발주·작업지시 최신본을 넣어 주세요.`}${hintO}`);
+  showError(`${m}월을 계산할 자료가 부족합니다`, `비어 있는 필수 칸(보관함에도 없음): ${missing.join(', ')}${inArch || `\n\n칸에 파일을 넣거나, 보관함에 ${m}월 로트목록·출하대장·단가대장과 발주·작업지시 최신본을 넣어 주세요.`}${hintO}`);
 };
 // ---------- 월별 자료 보관함 (IndexedDB, 이 브라우저에만) ----------
 let ARCH = {};                 // key → record (자료)
@@ -723,6 +739,12 @@ const IDB = {
 async function archLoad() {
   try { ARCH = await IDB.all(); } catch (e) { ARCH = {}; $('archSum').textContent = e.message; return; }
   for (const k of Object.keys(ARCH)) if (k.startsWith('calc:')) { CALC[k] = ARCH[k]; delete ARCH[k]; }
+  // 처음 열 때: 이 달 자료가 보관함에 없으면 자료가 있는 가장 최근 달로
+  if (!MONTH_SET && !Object.keys(FILLED).length) {
+    const has = ym => ['lots', 'ship', 'led', 'fco'].some(k => ARCH[`${k}:${ym}`]);
+    const yms = [...new Set(Object.values(ARCH).filter(r => r.ym && ['lots', 'ship', 'led'].includes(r.kind)).map(r => r.ym))].sort();
+    if (!has(ymNow()) && yms.length) $('month').value = Number(yms[yms.length - 1].slice(5));
+  }
   archRender();
 }
 const KINDS = [['lots', '평택 로트목록'], ['ship', '출하대장'], ['led', '제품 단가 대장'], ['fco', 'FCO']];
@@ -758,7 +780,10 @@ async function archDelete(key) {
   catch (e) { showError('보관함에서 빼지 못했습니다', e.message || String(e)); }
 }
 function archRender() {
-  archSlotsRender(); histRender();
+  archSlotsRender();
+  // 계산 전이면 보관함 변화를 칸에 바로 반영 (다 모이면 계산)
+  if (!RES) refresh();
+  histRender();
   {
     const yms = [...new Set(Object.values(ARCH).filter(r => r.ym).map(r => r.ym))].sort().reverse();
     const ok = ym => ARCH[`lots:${ym}`] && ARCH[`ship:${ym}`] && ARCH[`led:${ym}`] && ARCH.order && ARCH.wo;
@@ -838,7 +863,7 @@ async function archAddFiles(list, kind) {
 }
 async function archAutoSave() {
   try {
-    const res = Archive.ingestSheets(BOOK.sheets, FILENAME || '칸 자료', new Date(), RULES);
+    const res = Archive.ingestSheets(BOOK.fileSheets || BOOK.sheets, FILENAME || '칸 자료', new Date(), RULES);
     const recs = res.records.filter(r => r.kind !== 'lots' || r.ym);
     if (!recs.length) return;
     await archSave(recs);
@@ -1046,7 +1071,7 @@ archLoad();
 refresh();
 
 function lotSrc() {
-  if (BOOK.fromArchive) return `보관함 ${Archive.label(BOOK.fromArchive)}`;
+  if (BOOK.fromArchive || (BOOK.pulled || []).includes('lots')) return `보관함 ${Archive.label(ymNow())}`;
   const sh = BOOK.sheets.find(x => x.name === RES.lotSheet);
   return sh && sh.file ? sh.file : `「${RES.lotSheet}」 시트`;
 }
