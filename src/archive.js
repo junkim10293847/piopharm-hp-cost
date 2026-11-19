@@ -231,7 +231,8 @@ const Archive = (() => {
     const ship = all[`ship:${ym}`]; ship ? sheets.push(sheet(`${m}월 출하대장`, ship.rows)) : missing.push('출하대장');
     all.order ? sheets.push(sheet('발주 현황', all.order.rows)) : missing.push('발주 현황');
     all.wo ? sheets.push(sheet('작업지시현황', all.wo.rows)) : missing.push('작업지시현황');
-    const leds = Object.values(all).filter(r => r.kind === 'led' && within(r.ym));
+    const nym = (() => { const t = y * 12 + m; return `${Math.floor(t / 12)}-${pad(t % 12 + 1)}`; })();   // 익월
+    const leds = Object.values(all).filter(r => r.kind === 'led' && (within(r.ym) || r.ym === nym));
     if (!all[`led:${ym}`]) missing.push('제품 단가 대장(당월)');
     leds.forEach(r => sheets.push(sheet(`${Number(r.ym.slice(5))}월 제품 단가 대장`, r.rows)));
     const fco = all[`fco:${ym}`]; if (fco) sheets.push(sheet(`${m}월 FCO`, fco.rows));
@@ -253,6 +254,7 @@ const Archive = (() => {
     Object.values(all).filter(r => r.kind === 'lots' && within(r.ym) && r.ym !== ym).forEach(r => {
       const months = []; for (let y = r.ym; y <= pym; y = add(y, 1)) months.push(y);
       const gaps = months.filter(y => !shipBy.has(y)).map(y => Number(y.slice(5)) + '월');
+      if (shipBy.has(add(r.ym, -1))) months.unshift(add(r.ym, -1));   // 생산 전달에 먼저 출하(선출하)한 것도 뺌
       r.rows.slice(1).forEach(x => {
         const k = T(x[0]) + '|' + T(x[1]), made = Number(x[5]) || 0;
         const shipped = months.reduce((a, y) => { const m2 = shipBy.get(y); return a + (m2 ? (m2.get(k) || 0) + (m2.get('~' + k) || 0) : 0); }, 0);
@@ -260,7 +262,11 @@ const Archive = (() => {
       });
     });
     const carry = carryRows.length ? { asOf: pym, rows: carryRows } : null;
-    return { book: { sheets }, history: { lotMonth, conflict, carry }, missing, ledMonths: leds.map(r => r.ym).sort() };
+    // 익월 로트목록(선출하 확인용)과 전월 출하대장(이번 달 로트 중 먼저 나간 것)
+    const nl = all[`lots:${nym}`], next = nl ? { ym: nym, lots: new Map(nl.rows.slice(1).map(x => [T(x[0]) + '|' + T(x[1]), { 생산구분: T(x[4]), 완료수량: Number(x[5]) || 0, 제품명: T(x[2]) }])) } : null;
+    const ps = all[`ship:${pym}`]; let prevShip = null;
+    if (ps) { prevShip = new Map(); ps.rows.slice(1).forEach(x => { const k = T(x[4]) + '|' + T(x[7]), q = Number(x[9]) || 0, a = Number(x[13]) || 0; const o = prevShip.get(k) || { qty: 0, amt: 0 }; o.qty += q; o.amt += a; prevShip.set(k, o); }); }
+    return { book: { sheets }, history: { lotMonth, conflict, carry, next, prevShip, prevShipYm: ps ? pym : null }, missing, ledMonths: leds.map(r => r.ym).sort() };
   }
 
   return { ingest, ingestSheets, isProcessed, merge, buildBook, moveRecord, editLots, ymOf, label, ymFromMonth, LOT_HDR };

@@ -388,7 +388,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
       <div class="tabs" role="tablist">
         <button class="tab" role="tab" id="tab-rv" aria-selected="true" aria-controls="pane">검수<span class="c" id="cRv"></span></button>
         <button class="tab" role="tab" id="tab-pt" aria-selected="false" aria-controls="pane">평택 당월 로트<span class="c" id="cPt"></span></button>
-        <button class="tab" role="tab" id="tab-pv" aria-selected="false" aria-controls="pane">평택 전월 생산<span class="c" id="cPv"></span></button>
+        <button class="tab" role="tab" id="tab-pv" aria-selected="false" aria-controls="pane">평택 전월·익월 생산<span class="c" id="cPv"></span></button>
         <button class="tab" role="tab" id="tab-cy" aria-selected="false" aria-controls="pane">이월 검토<span class="c" id="cCy"></span></button>
         <button class="tab" role="tab" id="tab-st" aria-selected="false" aria-controls="pane">미출고 재고<span class="c" id="cSt"></span></button>
         <button class="tab" role="tab" id="tab-hs" aria-selected="false" aria-controls="pane">화성 품목별<span class="c" id="cHs"></span></button>
@@ -406,7 +406,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
         <h4>매출 구분</h4>
         <dl>
           <dt><span class="tag pt">평택</span></dt>
-          <dd>① 로트목록 로트의 출하금액 × 평택비율 + ② 로트목록에 없는 평택 출하(전월 이전 생산)</dd>
+          <dd>① 로트목록 로트의 출하금액 × 평택비율 + ② 로트목록 밖 평택 출하(전월 생산 · 익월 생산 선출하)</dd>
           <dt><span class="tag hs">화성</span></dt>
           <dd>출하대장 전체 − 평택 매출</dd>
         </dl>
@@ -1195,7 +1195,7 @@ function compute() {
     RES.archNote = ex.note;
     buildItems();
     $('dl').disabled = false;
-    setStatus(`${RES.opts.month}월 · 평택 당월 로트 ${RES.lots.length}개(${lotSrc()}) · 전월 생산 출하 ${RES.prev.length}개 · 화성 품목 ${RES.hw.length}개 계산 완료${RES.archNote ? ' · ' + RES.archNote : ''}`);
+    setStatus(`${RES.opts.month}월 · 평택 당월 로트 ${RES.lots.length}개(${lotSrc()}) · 로트목록 밖 출하(전월·익월 생산) ${RES.prev.length}개 · 화성 품목 ${RES.hw.length}개 계산 완료${RES.archNote ? ' · ' + RES.archNote : ''}`);
     MONTHS[ym] = { filled: { ...FILLED }, res: RES, book: BOOK, file: FILENAME };
     calcLog(ym, ex);
     render(); histRender();
@@ -1234,7 +1234,7 @@ function render() {
   $('sumTbl').innerHTML = `<thead><tr><th class="t">구분</th><th>매출</th><th>원료</th><th>자재</th><th>재료원가</th><th>재료원가율</th><th>매출 비중</th></tr></thead><tbody>
     ${row('<span class="tag pt">평택</span>', '', S.P)}
     ${row('<span class="muted">　└ 당월 생산</span>', '', S.P당월)}
-    ${row('<span class="muted">　└ 전월 이전 생산</span>', '', S.P전월)}
+    ${row('<span class="muted">　└ 로트목록 밖 출하(전월 생산 · 익월 생산 선출하)</span>', '', S.P전월)}
     ${row('<span class="tag hs">화성</span>', '', S.H)}
     ${row('<span class="muted">　└ 화성 출하 품목</span>', '', S.Hu)}
     ${row('<span class="muted">　└ 평택 로트의 화성분</span>', '', S.Hl)}
@@ -1262,11 +1262,11 @@ function renderPane() {
         <td class="t muted">${esc(o.원가방식)}</td><td class="t">${flagsHtml(o.flags)}</td></tr>`).join('') + '</tbody></table>';
     note = '행을 누르면 검수 화면에서 그 로트의 매칭을 볼 수 있습니다. 같은 제품의 당월 로트끼리는 생산수량 비율로 원가를 나눕니다.';
   } else if (TAB === 'pv') {
-    h = R.prev.length ? `<table><thead><tr><th class="t">로트번호</th><th class="t">제품명</th><th class="t">평택 근거</th><th class="t">작업지시일</th><th>출하량</th><th>출하중량</th><th>매출</th><th>원가월</th><th>원료</th><th>자재</th><th>재료원가율</th><th class="t">확인</th></tr></thead><tbody>` +
-      R.prev.map(o => `<tr class="click" data-go="P:${esc(o.key)}"><td class="t num">${esc(o.로트번호)}${chk('P:' + o.key)}</td><td class="t name" title="${esc(o.제품명)}">${esc(o.제품명)}</td><td class="t muted">${esc(o.근거)}</td><td class="t num">${esc(o.지시일자)}</td>
+    h = R.prev.length ? `<table><thead><tr><th class="t">구분</th><th class="t">로트번호</th><th class="t">제품명</th><th class="t">평택 근거</th><th class="t">작업지시일</th><th>출하량</th><th>출하중량</th><th>매출</th><th>원가월</th><th>원료</th><th>자재</th><th>재료원가율</th><th class="t">확인</th></tr></thead><tbody>` +
+      R.prev.map(o => `<tr class="click" data-go="P:${esc(o.key)}"><td class="t">${esc(o.구분)}${o.K != null && o.K < 1 ? ` <span class="muted">${Math.round(o.K * 100)}%</span>` : ''}</td><td class="t num">${esc(o.로트번호)}${chk('P:' + o.key)}</td><td class="t name" title="${esc(o.제품명)}">${esc(o.제품명)}</td><td class="t muted">${esc(o.근거)}</td><td class="t num">${esc(o.지시일자)}</td>
         <td class="num">${won(o.shipQty)}</td><td class="num">${won(o.shipW)}</td><td class="num">${won(o.매출)}</td><td class="num">${o.원가월 ?? '–'}</td><td class="num">${won(o.원료)}</td><td class="num">${won(o.자재)}</td><td class="num">${pct(o.원가율)}</td>
         <td class="t">${flagsHtml(o.flags)}</td></tr>`).join('') + '</tbody></table>' : '<p style="padding:16px;margin:0" class="muted">로트목록에 없는 평택 출하가 없습니다.</p>';
-    note = '로트목록에 없지만 작업지시번호 10-30 또는 출하 현장 비오팜2공장인 출하입니다. 원가는 생산월 단가 대장으로만 계산합니다. 생산월은 로트목록의 생산귀속 월(보관함의 이전 달 로트목록)로만 정하고, 생산월이나 그 달 대장이 없으면 빈칸으로 둡니다.';
+    note = '로트목록 「전월」 구역 로트, 로트목록에 없지만 작업지시번호 10-30·출하 현장 비오팜2공장인 출하, 그리고 보관함 익월 로트목록에 있는 로트를 먼저 출하한 것(선출하 — 출하일 기준 이번 달 매출)입니다. 원가는 생산월 단가 대장으로만 계산합니다. 생산월은 로트목록의 생산귀속 월(보관함의 이전 달 로트목록)로만 정하고, 생산월이나 그 달 대장이 없으면 빈칸으로 둡니다.';
   } else if (TAB === 'cy') {
     const C = R.carry;
     if (!C) {

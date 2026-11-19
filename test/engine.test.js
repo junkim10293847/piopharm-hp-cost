@@ -280,3 +280,31 @@ test('가공 파일((확인) 열·전월 생산 구역)은 보관함에 넣지 �
   const out = A.ingestSheets(proc, '가공.xlsx', new Date('2026-11-19'), {});
   assert.equal(out.records.length, 0); assert.match(out.skipped[0].reason, /가공 파일/);
 });
+
+test('출하 기준: 로트목록 제품코드 오타(10S ↔ 1OS)는 같은 로트의 출하대장 제품코드로 맞춤', () => {
+  const wb = fixtureWorkbook(); const ln = wb.SheetNames[0];
+  const a = XLSX.utils.sheet_to_json(wb.Sheets[ln], { header: 1, defval: null });
+  a.forEach(r => r.forEach((v, j) => { if (v === '1AA0000001') r[j] = '1AA000OOO1'; }));   // 로트목록 쪽만 오타
+  wb.Sheets[ln] = XLSX.utils.aoa_to_sheet(a);
+  const base = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()));
+  const R2 = Engine.run(bookFromWorkbook(XLSX, wb));
+  near(R2.P당월.매출, base.P당월.매출, '당월 매출 같음'); near(R2.P당월.원료, base.P당월.원료, '원가도 같음(단가대장 코드로 찾음)');
+  assert.ok(R2.lots.find(o => o.로트번호 === 'T001').flags.some(f => f.includes('1AA000OOO1 → 1AA0000001')));
+});
+
+test('선출하: 익월 로트목록에 있는 로트를 이번 달에 출하하면 이번 달 평택 매출, 다음 달엔 재고 아님', () => {
+  // 화성 작업지시로 잡히던 1BB0000001 출하를 익월(10월) 평택 로트목록 로트로
+  const base = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()));
+  const sh = base.hw.find(g => g.품목코드 === '1BB0000001').sh;
+  const lotNo = String(sh[0]['로트번호']);
+  const next = { ym: '2026-10', lots: new Map([[`1BB0000001|${lotNo}`, { 생산구분: '평택', 완료수량: 100, 제품명: '가' }]]) };
+  const R2 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { history: { next } });
+  const o = R2.prev.find(x => x.로트번호 === lotNo);
+  assert.equal(o.구분, '익월 생산 선출하');
+  near(R2.P.매출 + R2.H.매출, R2.totalShip, '합계는 그대로');
+  assert.ok(R2.P.매출 > base.P.매출);
+  // 다음 달: 전월 출하가 있으면 잔량에서 빼고 재고 아님 표시
+  const R3 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { history: { prevShip: new Map([['1AA0000004|T006', { qty: 2000, amt: 1 }]]), prevShipYm: '2026-08' } });
+  const t6 = R3.lots.find(x => x.로트번호 === 'T006');
+  assert.equal(t6.잔량, 0); assert.ok(t6.flags.some(f => f.includes('선출하')));
+});

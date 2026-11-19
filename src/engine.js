@@ -151,6 +151,7 @@ const Engine = (() => {
         if (lot.구분 === '전월') return { m: month === 1 ? 12 : month - 1, by: '로트목록 전월 구간' };
       }
       if (hist && hist.lotMonth && lot && hist.lotMonth.has(lot.key)) return { m: hist.lotMonth.get(lot.key), by: '보관함 이전 달 로트목록' };
+      if (hist && hist.next && lot && hist.next.lots.has(lot.key)) return { m: Number(hist.next.ym.slice(5)), by: `보관함 익월(${Number(hist.next.ym.slice(5))}월) 로트목록 — 선출하`, next: true };
       return null;
     };
     // FCO (선택)
@@ -212,6 +213,7 @@ const Engine = (() => {
     return base.map(r => {
       const o = { ...r, flags: [] };
       if (r.K == null) o.flags.push('생산구분 확인');
+      if (r.원래제품코드) o.flags.push(`제품코드 ${r.원래제품코드} → ${r.제품코드}(${r.코드근거} 기준으로 맞춤, 원본 확인)`);
       if (r.출하로트) o.flags.push(`출하대장 로트 ${r.출하로트}로 맞춤`);
       const split = [...new Set(r.sh.map(x => x.원래로트).filter(Boolean))];
       if (split.length) o.flags.push(`출하대장 로트 ${split.join(', ')} → ${r.로트번호}로 맞춤`);
@@ -240,7 +242,10 @@ const Engine = (() => {
           o.원가월 = r.prev.m; o.개당원가 = r.shipQty ? (r.shipW * r.prev.제조금액 / r.prev.pw) / r.shipQty : 0;
           o.Full원가 = r.shipW * r.prev.제조금액 / r.prev.pw;
           o.Full원료 = r.prev.제조금액 ? o.Full원가 * r.prev.원료 / r.prev.제조금액 : 0;
-        } else { o.원가월 = null; o.Full원가 = null; o.Full원료 = null; o.flags.push(r.생산월 ? `생산월 ${r.생산월.m}월 단가대장 없음 → 원가 빈칸` : '생산월 확인 불가(로트목록 생산귀속 없음) → 원가 빈칸'); }
+        } else { o.원가월 = null; o.Full원가 = null; o.Full원료 = null; o.flags.push(r.생산월 ? `생산월 ${r.생산월.m}월 단가대장 없음 → 원가 빈칸` : '생산월 확인 불가(로트목록 생산귀속 없음) → 원가 빈칸');
+          // 다른 달 대장에 이 제품이 있으면 알려만 줌(쓰지는 않음)
+          const ms = [...src.Lg.values()].filter(x => x.p === r.제품코드 && x.m !== opts.month && x.제조금액).map(x => `${x.m}월 ${Math.round(x.제조금액).toLocaleString()}원`);
+          if (ms.length) o.flags.push(`단가대장 ${ms.join(', ')}에 이 제품 투입액 있음 → 생산월 확인 후 생산귀속 입력`); }
       } else {
         o.원가방식 = '출하 없음'; o.원가월 = null; o.Full원가 = 0; o.Full원료 = 0;
         const om = [...new Set(r.odAll.map(x => x.월).filter(m => m != null))];
@@ -254,7 +259,13 @@ const Engine = (() => {
       o.원가율 = (o.매출 && o.원가 != null) ? o.원가 / o.매출 : null;
       const h = K == null ? 0 : 1 - K;
       o.H매출 = r.shipAmt * h; o.H원료 = Z(o.Full원료) * h; o.H자재 = (Z(o.Full원가) - Z(o.Full원료)) * h;
-      o.잔량 = Math.max(0, r.생산수량 - r.shipQty);
+      const ps = opts.history && opts.history.prevShip ? opts.history.prevShip.get(r.key) : null;
+      o.선출하 = ps ? ps.qty : 0;
+      if (ps) {
+        o.flags = o.flags.filter(f => !f.startsWith('출하 없음'));
+        o.flags.push(`${opts.history.prevShipYm ? Number(opts.history.prevShipYm.slice(5)) + '월' : '전월'}에 먼저 출하 ${ps.qty.toLocaleString()}(선출하, 그 달 매출) → 재고 아님`);
+      }
+      o.잔량 = Math.max(0, r.생산수량 - r.shipQty - o.선출하);
       o.잔량재료비 = r.cur ? o.잔량 * o.개당원가 : null;
       o.수주수량 = r.od.reduce((a, x) => a + Z(N(x['수주수량'])), 0);
       o.수주단가 = r.od.length ? N(r.od[0]['수주단가']) : null;
@@ -270,7 +281,8 @@ const Engine = (() => {
     for (const r of src.Sh) {
       if (listed.has(r.key) || !T(r['품목코드']).startsWith('1')) continue;
       const wo = src.Wo.filter(x => x.key === r.key);
-      const pt = wo.some(isPtWo) || T(r['현장명칭']) === RU.ptSite;
+      const nx = opts.history && opts.history.next ? opts.history.next.lots.get(r.key) : null;
+      const pt = wo.some(isPtWo) || T(r['현장명칭']) === RU.ptSite || (nx && RATIO.hasOwnProperty(nx.생산구분) && (opts.ratio[nx.생산구분] ?? RATIO[nx.생산구분]) > 0);
       if (!pt) continue;
       if (!groups.has(r.key)) groups.set(r.key, { key: r.key, 제품코드: T(r['품목코드']), 로트번호: T(r['로트번호']), 제품명: nameOf(src, T(r['품목코드']), T(r['제품명'])), 고객사: T(r['매출업체']), sh: [], wo });
       groups.get(r.key).sh.push(r);
@@ -278,9 +290,18 @@ const Engine = (() => {
     return [...groups.values()].map(g => {
       const shipQty = g.sh.reduce((a, x) => a + x.qty, 0), shipW = g.sh.reduce((a, x) => a + x.w, 0), shipAmt = g.sh.reduce((a, x) => a + x.amt, 0);
       const pm = src.prodMonth({ key: g.key }, opts.history);
-      const c = pm && pm.m !== opts.month ? src.led(g.제품코드, pm.m) : null;
-      const o = { ...g, 구분: '전월 생산', K: 1, 생산구분: '평택', shipQty, shipW, shipAmt, flags: [], od: src.Od.filter(x => x.key === g.key), 생산월: pm, 생산월근거: pm ? pm.by : null };
-      o.근거 = [g.wo.some(isPtWo) ? `작업지시 ${RU.ptWo}` : null, g.sh.some(x => T(x['현장명칭']) === RU.ptSite) ? RU.ptSite : null].filter(Boolean).join(' · ');
+      let c = pm && pm.m !== opts.month ? src.led(g.제품코드, pm.m) : null, curLed = false;
+      // 선출하: 생산월(익월) 대장에 없고 당월 대장에 그 제품 투입액이 있으며 당월 로트가 쓰지 않으면 당월 투입액으로
+      if (pm && pm.next && !(c && c.pw)) {
+        const cc = src.led(g.제품코드, opts.month);
+        if (cc && cc.pw && !lotRows.some(l => l.제품코드 === g.제품코드 && l.cur)) { c = cc; curLed = true; }
+      }
+      const nx = opts.history && opts.history.next ? opts.history.next.lots.get(g.key) : null;
+      const K = nx && RATIO.hasOwnProperty(nx.생산구분) ? (opts.ratio[nx.생산구분] ?? RATIO[nx.생산구분]) : 1;
+      const o = { ...g, 구분: pm && pm.next ? '익월 생산 선출하' : '전월 생산', K, 생산구분: nx ? nx.생산구분 : '평택', shipQty, shipW, shipAmt, flags: [], od: src.Od.filter(x => x.key === g.key), 생산월: pm, 생산월근거: pm ? pm.by : null };
+      o.근거 = [g.wo.some(isPtWo) ? `작업지시 ${RU.ptWo}` : null, g.sh.some(x => T(x['현장명칭']) === RU.ptSite) ? RU.ptSite : null, nx ? `${Number(opts.history.next.ym.slice(5))}월 로트목록(${nx.생산구분})` : null].filter(Boolean).join(' · ');
+      if (curLed) o.flags.push(`${pm.m}월 단가대장에는 없고 ${opts.month}월 단가대장에 투입액이 있어 ${opts.month}월 투입액으로 원가`);
+      if (pm && pm.next) o.flags.push(`${Number(opts.history.next.ym.slice(5))}월 생산 로트를 ${opts.month}월에 먼저 출하(출하일 기준 ${opts.month}월 매출)`);
       o.지시일자 = g.wo.map(w => T(w['지시일자'])).filter(Boolean).join(', ');
       if (c && c.pw && shipW) {
         o.원가월 = c.m; o.원가 = shipW * c.제조금액 / c.pw; o.원료 = c.제조금액 ? o.원가 * c.원료 / c.제조금액 : 0; o.자재 = o.원가 - o.원료;
@@ -289,7 +310,11 @@ const Engine = (() => {
           const alt = g.제품코드.replace(/^1O/, '10') + '|' + g.로트번호;
           if (opts.history.lotMonth.has(alt)) o.flags.push(`이전 로트목록에 ${alt.split('|')[0]}(제품코드 오타 의심)로 ${opts.history.lotMonth.get(alt)}월 기록 있음 → 원본 확인`);
         } }
-      o.매출 = shipAmt; o.원가율 = (o.원가 != null && shipAmt) ? o.원가 / shipAmt : null;
+      // 평택비율(익월 로트목록의 생산구분) 반영 — 화성분은 H로
+      const fullC = o.원가, fullR = o.원료;
+      o.매출 = shipAmt * K; o.원가 = fullC == null ? null : fullC * K; o.원료 = fullR == null ? null : fullR * K; o.자재 = o.원가 == null ? null : o.원가 - o.원료;
+      o.H매출 = shipAmt * (1 - K); o.H원료 = Z(fullR) * (1 - K); o.H자재 = (Z(fullC) - Z(fullR)) * (1 - K);
+      o.원가율 = (o.원가 != null && o.매출) ? o.원가 / o.매출 : null;
       o.cur = c;
       return o;
     }).sort((a, b) => b.매출 - a.매출);
@@ -400,6 +425,27 @@ const Engine = (() => {
     const opts = { month, ratio, rules: { ...RU }, history: userOpts.history || null };
     const src = prepare(book, month);
     // 출하 기준: 출하대장 로트를 '-1', '-2'처럼 나눠 적었고 로트목록에는 원래 로트만 있으면 원래 로트로 맞춤
+    // 출하 기준: 로트목록 제품코드가 출하대장과 다르면(예: 10S… ↔ 1OS…, 10B24… ↔ 1OB34…) 같은 로트의 출하대장 제품코드로 맞춤.
+    // 후보가 하나뿐이고(O·0만 다르거나 로트번호가 4자 이상), 다른 행이 이미 쓰지 않을 때만. 출하가 없으면 작업지시의 같은 로트로.
+    {
+      const baseLot = x => { const m = x.match(/^(.+?)-\d{1,2}$/); return m ? m[1] : x; };
+      const O0 = c => c.replace(/O/g, '0');
+      const by = (rows, lotF, codeF) => { const m = new Map(); rows.forEach(r => { const c = T(r[codeF]); if (!c.startsWith('1')) return; [T(r[lotF]), baseLot(T(r[lotF]))].forEach(k => { if (!m.has(k)) m.set(k, new Set()); m.get(k).add(c); }); }); return m; };
+      const sByLot = by(src.Sh, '로트번호', '품목코드'), wByLot = by(src.Wo, '제품로트번호', '지시제품');
+      const shipK = new Set(src.Sh.map(x => x.key)), used = new Set(lotInfo.lots.map(l => l.제품코드 + '|' + l.로트번호));
+      for (const l of lotInfo.lots) {
+        const b = baseLot(l.로트번호);
+        if (shipK.has(l.제품코드 + '|' + l.로트번호) || shipK.has(l.제품코드 + '|' + b)) continue;
+        for (const pool of [sByLot, wByLot]) {
+          const c = [...new Set([...(pool.get(l.로트번호) || []), ...(pool.get(b) || [])])].filter(x => x !== l.제품코드 && !used.has(x + '|' + l.로트번호));
+          if (!c.length) continue;
+          const same = c.filter(x => O0(x) === O0(l.제품코드));
+          const pickC = same.length === 1 ? same[0] : (c.length === 1 && l.로트번호.length >= 4 ? c[0] : null);
+          if (pickC) { l.원래제품코드 = l.제품코드; l.제품코드 = pickC; l.코드근거 = pool === sByLot ? '출하대장' : '작업지시'; used.add(pickC + '|' + l.로트번호); }
+          break;
+        }
+      }
+    }
     const carryIn = (userOpts.history && userOpts.history.carry) || null;
     const lotKeys = new Set([...lotInfo.lots.map(l => l.제품코드 + '|' + l.로트번호), ...(carryIn ? carryIn.rows.map(c => c.제품코드 + '|' + c.로트번호) : [])]);
     src.Sh.forEach(r => {
@@ -410,7 +456,7 @@ const Engine = (() => {
     const lotsAll = calcLots(lotInfo.lots, src, opts);
     // 로트목록의 '전월' 구역에 적힌 로트는 전월 생산 출하로 모음
     const lots = lotsAll.filter(o => o.구분 !== '전월');
-    const listedPrev = lotsAll.filter(o => o.구분 === '전월').map(o => ({ ...o, 구분: '전월 생산', 근거: '로트목록 전월 구역', 지시일자: o.wo.map(w => T(w['지시일자'])).filter(Boolean).join(', '), 고객사: o.고객사 }));
+    const listedPrev = lotsAll.filter(o => o.구분 === '전월').map(o => ({ ...o, _fromList: true, 구분: '전월 생산', 근거: '로트목록 전월 구역', 지시일자: o.wo.map(w => T(w['지시일자'])).filter(Boolean).join(', '), 고객사: o.고객사 }));
     const prev = [...listedPrev, ...calcPrev(lotsAll, src, opts)].sort((a, b) => Z(b.매출) - Z(a.매출));
     const taken = new Set([...lotsAll.filter(o => o.K === 1).map(o => o.key), ...prev.map(o => o.key)]);
     // 평택비율 < 1 로트의 화성분은 lots 쪽에서 따로 계산하므로, 화성 품목에서는 K가 있는 로트 전체를 제외
@@ -423,7 +469,8 @@ const Engine = (() => {
     const P당월 = { 매출: s(lots, '매출'), 원료: s(lots, '원료'), 자재: s(lots, '자재') };
     const P전월 = { 매출: s(prev, '매출'), 원료: s(prev, '원료'), 자재: s(prev, '자재') };
     const P = { 매출: P당월.매출 + P전월.매출, 원료: P당월.원료 + P전월.원료, 자재: P당월.자재 + P전월.자재 };
-    const Hl = { 매출: s(lotsAll, 'H매출'), 원료: s(lotsAll, 'H원료'), 자재: s(lotsAll, 'H자재') };
+    const Hsrc = [...lotsAll, ...prev.filter(o => !o._fromList)];
+    const Hl = { 매출: s(Hsrc, 'H매출'), 원료: s(Hsrc, 'H원료'), 자재: s(Hsrc, 'H자재') };
     const Hu = { 매출: s(hw, '매출'), 원료: s(hw, '원료'), 자재: s(hw, '자재'), 미확인매출: hw.filter(g => g.원가 == null).reduce((a, g) => a + g.매출, 0) };
     const H = { 매출: Hl.매출 + Hu.매출, 원료: Hl.원료 + Hu.원료, 자재: Hl.자재 + Hu.자재 };
     const 미확인 = { 평택: [...lots, ...prev].filter(o => o.매출 && o.원가 == null).reduce((a, o) => a + o.매출, 0) };
