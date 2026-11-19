@@ -308,3 +308,22 @@ test('선출하: 익월 로트목록에 있는 로트를 이번 달에 출하하
   const t6 = R3.lots.find(x => x.로트번호 === 'T006');
   assert.equal(t6.잔량, 0); assert.ok(t6.flags.some(f => f.includes('선출하')));
 });
+
+test('가공 파일의 「제품코드」·「로트번호(확인)」 열을 먼저 씀, 잘못 적힌 행은 발주현황 제품명으로 맞춤', () => {
+  const wb = fixtureWorkbook(); const ln = wb.SheetNames[0];
+  const a = XLSX.utils.sheet_to_json(wb.Sheets[ln], { header: 1, defval: null });
+  const hi = a.findIndex(r => r && r.includes('완료수량'));
+  const h = a[hi], ci = h.findIndex(x => String(x).startsWith('제품코드')), li = h.findIndex(x => String(x).startsWith('로트번호'));
+  // 제공자료 열 뒤에 확인 열 추가: T001 행만 제공자료 코드를 틀리게
+  a.forEach((r, i) => {
+    if (i < hi) return;
+    if (i === hi) { r.splice(ci, 1, '제품코드\n(제공자료)', '제품코드'); r.splice(li + 1, 1, '로트번호\n(제공자료)', '로트번호\n(확인)'); return; }
+    const code = r[ci], lot = r[li];
+    r.splice(ci, 1, lot === 'T001' ? '1ZZ9999999' : code, code); r.splice(li + 1, 1, lot, lot);
+  });
+  wb.Sheets[ln] = XLSX.utils.aoa_to_sheet(a);
+  const base = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()));
+  const R2 = Engine.run(bookFromWorkbook(XLSX, wb));
+  near(R2.P.매출, base.P.매출, '확인 열 사용 → 같은 매출');
+  assert.ok(R2.lots.find(o => o.로트번호 === 'T001').flags.some(f => f.includes('가공 파일에서 제품코드를')));
+});

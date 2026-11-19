@@ -58,6 +58,7 @@ const Engine = (() => {
 
   // ---------- 로트목록 ----------
   // 지원 형식: ① 미가공 「9월」 시트(생산공장·포장공장) ② 기존 「당월 생산」(평택비율 텍스트, 전월 구간) ③ 「로트목록」 표
+  let USE_CONFIRMED = true;
   function readLots(book) {
     for (const s of book.sheets) {
       const rows = s.rows;
@@ -74,6 +75,10 @@ const Engine = (() => {
         const findStart = pre => h.findIndex(x => x.startsWith(pre));
         const cProd = find('제품코드(제공자료)') >= 0 ? find('제품코드(제공자료)') : findStart('제품코드');
         const cLot = find('로트번호(제공자료)', '로트번호', '로트번호(확인)');
+        // 가공 파일: 사람이 확인해 고친 열(「제품코드」·「로트번호(확인)」)이 있으면 그 값을 씀 (비었거나 0·#REF!면 제공자료 값)
+        const cProdOk = find('제품코드(제공자료)') >= 0 ? h.indexOf('제품코드') : -1;
+        const cLotOk = find('로트번호(확인)') >= 0 && find('로트번호(제공자료)') >= 0 ? find('로트번호(확인)') : (find('로트번호(제공자료)') >= 0 && h.indexOf('로트번호') >= 0 ? h.indexOf('로트번호') : -1);
+        const okVal = v => { const t = T(v); return t && t !== '0' && !t.startsWith('#') && t.toLowerCase() !== 'true' && t.toLowerCase() !== 'false'; };
         const cName = find('제품명'), cCust = find('고객사');
         const cLine = find('생산구분', '평택비율');
         const cMake = find('생산공장'), cPack = find('포장공장');
@@ -85,7 +90,7 @@ const Engine = (() => {
         for (let i = hi + 1; i < end; i++) {
           const r = rows[i] || [];
           const lot = T(r[cLot]); const qty = N(r[cQty]);
-          if (!lot || qty == null || cProd < 0) continue;
+          if (!lot || qty == null || (cProd < 0 && cProdOk < 0)) continue;
           let line = cLine >= 0 ? T(r[cLine]) : '';
           if (!RATIO.hasOwnProperty(line)) {
             const mk = cMake >= 0 ? T(r[cMake]) : '', pk = cPack >= 0 ? T(r[cPack]) : '';
@@ -94,8 +99,14 @@ const Engine = (() => {
             else if (mk === '화성' && pk === '화성') line = '화성';
             else if (!line) line = mk || pk ? `${mk}/${pk}` : '';
           }
+          const useOk = USE_CONFIRMED;
+          const code0 = T(r[cProd]), codeOk = useOk && cProdOk >= 0 && okVal(r[cProdOk]) ? T(r[cProdOk]) : null;
+          const lotOk = useOk && cLotOk >= 0 && okVal(r[cLotOk]) ? T(r[cLotOk]) : null;
+          const code = codeOk || code0, lotUse = lotOk || lot;
+          if (!code) continue;
           lots.push({
-            구분: section, 행: i + 1, 제품코드: T(r[cProd]), 로트번호: lot, 제품명: T(r[cName]), 고객사: T(r[cCust]),
+            구분: section, 행: i + 1, 제품코드: code, 로트번호: lotUse, 제품명: T(r[cName]), 고객사: T(r[cCust]),
+            ...(codeOk && code0 && codeOk !== code0 ? { 확인코드: code0 } : {}), ...(lotOk && lotOk !== lot ? { 확인로트: lot } : {}),
             생산구분: line, 완료수량: qty, 완료단가: N(r[cPrice]), 생산귀속: cMonth >= 0 ? T(r[cMonth]) : '',
           });
         }
@@ -115,7 +126,7 @@ const Engine = (() => {
 
   // ---------- 원천 시트 준비 ----------
   function prepare(book, month) {
-    const OdAll = pick(promote(sheetBy(book, '발주현황').rows, 'LOT'), ['매출월', 'LOT', '제품코드', '구분', '수주수량', '수주단가'], ['품목', '출고일'])
+    const OdAll = pick(promote(sheetBy(book, '발주현황').rows, 'LOT'), ['매출월', 'LOT', '제품코드', '구분', '수주수량', '수주단가'], ['품목', '출고일', '업체명'])
       .filter(r => T(r.LOT) && T(r.LOT) !== 'LOT')
       .map(r => ({ ...r, 월: N(r['매출월']), key: T(r['제품코드']) + '|' + T(r.LOT) }));
     const Od = OdAll.filter(r => r.월 === month);
@@ -213,7 +224,11 @@ const Engine = (() => {
     return base.map(r => {
       const o = { ...r, flags: [] };
       if (r.K == null) o.flags.push('생산구분 확인');
-      if (r.원래제품코드) o.flags.push(`제품코드 ${r.원래제품코드} → ${r.제품코드}(${r.코드근거} 기준으로 맞춤, 원본 확인)`);
+      if (r.잘못적힌행) o.flags.push(`로트목록에 ${r.잘못적힌행}로 적힌 행 → ${r.제품코드} · ${r.로트번호}로 맞춤(${r.코드근거}, 원본 확인)`);
+      else if (r.원래제품코드) o.flags.push(`제품코드 ${r.원래제품코드} → ${r.제품코드}(${r.코드근거} 기준으로 맞춤, 원본 확인)`);
+      if (r.확인코드) o.flags.push(`가공 파일에서 제품코드를 ${r.확인코드} → ${r.제품코드}로 고친 값 사용`);
+      if (r.확인로트) o.flags.push(`가공 파일에서 로트를 ${r.확인로트} → ${r.로트번호}로 고친 값 사용`);
+      if (r.구분로트) o.flags.push(`같은 로트 ${r.구분로트.replace(/-\d+$/, '')}를 다른 제품(${r.같은로트.join(', ')})도 씀 → ${r.구분로트}로 구분(제품코드별로 따로 계산)`);
       if (r.출하로트) o.flags.push(`출하대장 로트 ${r.출하로트}로 맞춤`);
       const split = [...new Set(r.sh.map(x => x.원래로트).filter(Boolean))];
       if (split.length) o.flags.push(`출하대장 로트 ${split.join(', ')} → ${r.로트번호}로 맞춤`);
@@ -417,6 +432,7 @@ const Engine = (() => {
   }
 
   function run(book, userOpts = {}) {
+    USE_CONFIRMED = userOpts.useConfirmed !== false;
     const lotInfo = readLots(book);
     const month = userOpts.month || detectMonth(book);
     if (!month) throw new Error('당월을 알 수 없습니다. 당월을 입력하세요.');
@@ -444,6 +460,45 @@ const Engine = (() => {
           if (pickC) { l.원래제품코드 = l.제품코드; l.제품코드 = pickC; l.코드근거 = pool === sByLot ? '출하대장' : '작업지시'; used.add(pickC + '|' + l.로트번호); }
           break;
         }
+      }
+    }
+    // 로트목록 행의 제품코드·로트가 출하대장·작업지시 어디에도 없고, 그 로트를 다른 제품이 쓰고 있으면(잘못 적힌 행)
+    // 발주현황에서 같은 제품명·고객사의 이번 달 출하 로트를 찾아 하나뿐일 때 그 제품코드·로트로 맞춤 (예: 7월 튼튼닷컴 감마리놀렌산 P051C003 → 1HS3000003·1760C001)
+    {
+      const nm = x => T(x).replace(/[\s()（）\[\]·.,/&+-]/g, '').toLowerCase();
+      const shipK = new Set(src.Sh.map(x => x.key)), woK = new Set(src.Wo.map(x => x.key));
+      const has = (c, l) => { const b = (l.match(/^(.+?)-\d{1,2}$/) || [])[1]; return shipK.has(c + '|' + l) || woK.has(c + '|' + l) || (b && (shipK.has(c + '|' + b) || woK.has(c + '|' + b))); };
+      const used = new Set(lotInfo.lots.map(l => l.제품코드 + '|' + l.로트번호));
+      const lotOwners = new Map(); [...lotInfo.lots.map(l => [l.로트번호, l.제품코드]), ...src.Wo.map(w => [T(w['제품로트번호']), T(w['지시제품'])])].forEach(([lo, c]) => { if (!c.startsWith('1')) return; if (!lotOwners.has(lo)) lotOwners.set(lo, new Set()); lotOwners.get(lo).add(c); });
+      for (const l of lotInfo.lots) {
+        if (has(l.제품코드, l.로트번호)) continue;
+        const others = [...(lotOwners.get(l.로트번호) || [])].filter(c => c !== l.제품코드);
+        if (!others.length || !l.제품명) continue;
+        const cand = new Map();
+        src.OdAll.forEach(o => {
+          const c = T(o['제품코드']), lo = T(o.LOT);
+          if (!c || !lo || nm(o['품목']) !== nm(l.제품명)) return;
+          if (l.고객사 && o['업체명'] && !nm(o['업체명']).includes(nm(l.고객사)) && !nm(l.고객사).includes(nm(o['업체명']))) return;
+          if (!shipK.has(c + '|' + lo) || used.has(c + '|' + lo)) return;
+          cand.set(c + '|' + lo, { c, lo });
+        });
+        if (cand.size === 1) {
+          const { c, lo } = [...cand.values()][0];
+          l.잘못적힌행 = `${l.제품코드} · ${l.로트번호}`; l.원래제품코드 = l.원래제품코드 || l.제품코드; l.제품코드 = c; l.로트번호 = lo; l.코드근거 = '발주현황(같은 제품명·고객사)';
+          used.add(c + '|' + lo);
+        }
+      }
+    }
+    // 같은 로트번호를 다른 제품이 함께 쓰면 -1, -2로 구분해 표시 (계산은 제품코드+로트로 따로)
+    {
+      const base = x => (x.match(/^(.+?)-\d{1,2}$/) || [, x])[1];
+      const groups = new Map(); lotInfo.lots.forEach(l => { const b = base(l.로트번호); if (!groups.has(b)) groups.set(b, []); groups.get(b).push(l); });
+      // 같은 달 작업지시에 그 로트를 쓰는 다른 제품도 함께 셈
+      const woOwners = new Map(); src.Wo.forEach(w => { const c = T(w['지시제품']); if (!c.startsWith('1')) return; const b = base(T(w['제품로트번호'])); if (!woOwners.has(b)) woOwners.set(b, new Set()); woOwners.get(b).add(c); });
+      for (const [b, ls] of groups) {
+        const codes = new Set([...ls.map(l => l.제품코드), ...(woOwners.get(b) || [])]);
+        if (codes.size < 2) continue;
+        ls.forEach((l, i) => { if (/-\d{1,2}$/.test(l.로트번호)) return; l.구분로트 = `${b}-${i + 1}`; l.같은로트 = [...codes].filter(c => c !== l.제품코드); });
       }
     }
     const carryIn = (userOpts.history && userOpts.history.carry) || null;
