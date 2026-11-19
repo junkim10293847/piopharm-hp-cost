@@ -181,21 +181,41 @@ const Engine = (() => {
   // ---------- 평택 로트목록 로트 ----------
   function calcLots(lots, src, opts) {
     const { Od, OdAll, Wo, Sh, led, prodMonth } = src;
-    const base = lots.map(l => {
-      const key = l.제품코드 + '|' + l.로트번호;
+    // 출하 기준: 로트목록 행을 출하대장 로트에 맞춤.
+    // 로트번호를 '-1', '-2'처럼 나눠 적은 행은 출하대장에 그 이름이 없고 원래 로트가 있으면 원래 로트로 맞춤.
+    const shipKeys = new Set(Sh.map(x => x.key));
+    const shipKeyOf = l => {
+      const k = l.제품코드 + '|' + l.로트번호;
+      if (shipKeys.has(k)) return { key: k, by: null };
+      const m = l.로트번호.match(/^(.+?)-\d{1,2}$/);
+      if (m && shipKeys.has(l.제품코드 + '|' + m[1])) return { key: l.제품코드 + '|' + m[1], by: m[1] };
+      return { key: k, by: null };
+    };
+    const keyed = lots.map(l => ({ l, ...shipKeyOf(l) }));
+    // 같은 출하 로트에 맞춰진 행이 여럿이면 출하를 완료수량 비율로 나눔 (한 출하를 두 번 세지 않게)
+    const cnt = new Map(); keyed.forEach(x => cnt.set(x.key, (cnt.get(x.key) || 0) + Z(x.l.완료수량)));
+    const rows = new Map(); keyed.forEach(x => rows.set(x.key, (rows.get(x.key) || 0) + 1));
+    const base = keyed.map(({ l, key, by }) => {
+      const lotKey = l.제품코드 + '|' + l.로트번호;
       const K = RATIO.hasOwnProperty(l.생산구분) ? (opts.ratio[l.생산구분] ?? RATIO[l.생산구분]) : null;
       const sh = Sh.filter(x => x.key === key);
-      const shipQty = sh.reduce((a, x) => a + x.qty, 0), shipW = sh.reduce((a, x) => a + x.w, 0), shipAmt = sh.reduce((a, x) => a + x.amt, 0);
-      const cur = led(l.제품코드, opts.month);
+      const n = rows.get(key), share = n > 1 ? (cnt.get(key) ? Z(l.완료수량) / cnt.get(key) : 1 / n) : 1;
+      const shipQty = sh.reduce((a, x) => a + x.qty, 0) * share, shipW = sh.reduce((a, x) => a + x.w, 0) * share, shipAmt = sh.reduce((a, x) => a + x.amt, 0) * share;
+      // '전월' 구역에 적힌 로트는 당월 단가대장을 쓰지 않음 (생산월 단가대장으로)
+      const cur = l.구분 === '전월' ? null : led(l.제품코드, opts.month);
       const pm = cur ? null : prodMonth({ ...l, key }, opts.history);
       const prev = pm && pm.m !== opts.month ? led(l.제품코드, pm.m) : null;
-      return { ...l, key, K, sh, shipQty, shipW, shipAmt, cur, prev, 생산월: pm,
-        wo: Wo.filter(x => x.key === key), od: Od.filter(x => x.key === key), odAll: OdAll.filter(x => x.key === key),
+      return { ...l, key, lotKey, 출하로트: by, 출하나눔: n > 1 ? share : null, K, sh, shipQty, shipW, shipAmt, cur, prev, 생산월: pm,
+        wo: Wo.filter(x => x.key === key || x.key === lotKey), od: Od.filter(x => x.key === key || x.key === lotKey), odAll: OdAll.filter(x => x.key === key || x.key === lotKey),
         생산수량: Math.max(Z(l.완료수량), shipQty) };
     });
     return base.map(r => {
       const o = { ...r, flags: [] };
       if (r.K == null) o.flags.push('생산구분 확인');
+      if (r.출하로트) o.flags.push(`출하대장 로트 ${r.출하로트}로 맞춤`);
+      const split = [...new Set(r.sh.map(x => x.원래로트).filter(Boolean))];
+      if (split.length) o.flags.push(`출하대장 로트 ${split.join(', ')} → ${r.로트번호}로 맞춤`);
+      if (r.출하나눔 != null) o.flags.push(`같은 출하 로트를 여러 행이 나눔(완료수량 비율 ${(r.출하나눔 * 100).toFixed(1)}%)`);
       if (!r.wo.length) o.flags.push('작업지시 없음');
       if (r.shipQty > Z(r.완료수량)) o.flags.push(`출하량(${r.shipQty.toLocaleString()}) > 완료수량`);
       if (r.cur) {
@@ -342,6 +362,35 @@ const Engine = (() => {
     return { rows: rows.sort((a, b) => Z(b.현재고금액 ?? b.재료비추정) - Z(a.현재고금액 ?? a.재료비추정)), hasFco: !!src.Fco };
   }
 
+  // ---------- 전월까지 출하되지 않고 이월된 로트 → 이번 달 출하와 함께 검토 ----------
+  // carryIn = { asOf: 'YYYY-MM'(직전 달), rows: [{ 생산월, 제품코드, 로트번호, 제품명, 생산구분, 완료수량, 이전출하, 이월수량, 빈달 }] } (보관함 로트목록 − 출하대장)
+  function calcCarry(carryIn, lots, prev, src, opts) {
+    if (!carryIn) return null;
+    const lotMap = new Map(lots.map(o => [o.key, o])), prevMap = new Map(prev.map(o => [o.key, o]));
+    let unknown = 0;
+    const rows = carryIn.rows.map(c0 => {
+      const key = c0.제품코드 + '|' + c0.로트번호;
+      const sh = src.Sh.filter(x => x.key === key);
+      const q = sh.reduce((a, x) => a + x.qty, 0), amt = sh.reduce((a, x) => a + x.amt, 0);
+      // 중간 달 출하대장이 없으면 이월 수량을 알 수 없음 → 정하지 않음. 이번 달 출하도 없으면 목록에서 빼고 개수만
+      const gap = c0.빈달 && c0.빈달.length;
+      if (gap && !q) { unknown++; return null; }
+      const c = gap ? { ...c0, 이전출하: null, 이월수량: null } : c0;
+      const L = lotMap.get(key), P = prevMap.get(key);
+      const where = L ? '평택 당월 로트(이번 달 로트목록에 다시 있음)' : P ? '평택 전월 생산 출하' : sh.length ? '화성 출하로 잡힘' : '–';
+      const 남은 = c.이월수량 == null ? null : Math.max(0, c.이월수량 - q);
+      const 상태 = !q ? '미출하 · 계속 이월' : c.이월수량 == null ? '이번 달 출하 · 이월 수량 확인 불가' : q >= c.이월수량 ? '이번 달 전량 출하' : `일부 출하 · ${남은.toLocaleString()} 남음`;
+      const flags = [];
+      if (gap) flags.push(`${c.빈달.join('·')} 출하대장이 보관함에 없어 이월 수량을 정하지 않음`);
+      if (c.이월수량 != null && q > c.이월수량) flags.push(`이번 달 출하(${q.toLocaleString()})가 이월 수량보다 큼`);
+      if (sh.length && !L && !P) flags.push('평택 이월 로트인데 화성으로 잡힘 → 작업지시·현장명칭 확인');
+      if (P && P.원가 == null) flags.push('원가 빈칸(생산월 단가대장 없음)');
+      const o = P || L;
+      return { ...c, key, 당월출하량: q, 당월매출: amt, 남은수량: 남은, 상태, 반영: where, 원가월: o ? o.원가월 : null, 원가: o ? o.원가 : null, 원료: o ? o.원료 : null, 자재: o ? o.자재 : null, flags };
+    });
+    return { asOf: carryIn.asOf, unknown, rows: rows.filter(Boolean).sort((a, b) => (b.당월매출 - a.당월매출) || (Z(b.이월수량) - Z(a.이월수량))) };
+  }
+
   function run(book, userOpts = {}) {
     const lotInfo = readLots(book);
     const month = userOpts.month || detectMonth(book);
@@ -350,11 +399,23 @@ const Engine = (() => {
     const ratio = { ...RATIO, ...(userOpts.ratio || {}) };
     const opts = { month, ratio, rules: { ...RU }, history: userOpts.history || null };
     const src = prepare(book, month);
-    const lots = calcLots(lotInfo.lots, src, opts);
-    const prev = calcPrev(lots, src, opts);
-    const taken = new Set([...lots.filter(o => o.K === 1).map(o => o.key), ...prev.map(o => o.key)]);
+    // 출하 기준: 출하대장 로트를 '-1', '-2'처럼 나눠 적었고 로트목록에는 원래 로트만 있으면 원래 로트로 맞춤
+    const carryIn = (userOpts.history && userOpts.history.carry) || null;
+    const lotKeys = new Set([...lotInfo.lots.map(l => l.제품코드 + '|' + l.로트번호), ...(carryIn ? carryIn.rows.map(c => c.제품코드 + '|' + c.로트번호) : [])]);
+    src.Sh.forEach(r => {
+      if (lotKeys.has(r.key)) return;
+      const lot = T(r['로트번호']), m = lot.match(/^(.+?)-\d{1,2}$/), base = m && T(r['품목코드']) + '|' + m[1];
+      if (base && lotKeys.has(base)) { r.원래로트 = lot; r.key = base; }
+    });
+    const lotsAll = calcLots(lotInfo.lots, src, opts);
+    // 로트목록의 '전월' 구역에 적힌 로트는 전월 생산 출하로 모음
+    const lots = lotsAll.filter(o => o.구분 !== '전월');
+    const listedPrev = lotsAll.filter(o => o.구분 === '전월').map(o => ({ ...o, 구분: '전월 생산', 근거: '로트목록 전월 구역', 지시일자: o.wo.map(w => T(w['지시일자'])).filter(Boolean).join(', '), 고객사: o.고객사 }));
+    const prev = [...listedPrev, ...calcPrev(lotsAll, src, opts)].sort((a, b) => Z(b.매출) - Z(a.매출));
+    const taken = new Set([...lotsAll.filter(o => o.K === 1).map(o => o.key), ...prev.map(o => o.key)]);
     // 평택비율 < 1 로트의 화성분은 lots 쪽에서 따로 계산하므로, 화성 품목에서는 K가 있는 로트 전체를 제외
-    lots.filter(o => o.K != null).forEach(o => taken.add(o.key));
+    lotsAll.filter(o => o.K != null).forEach(o => taken.add(o.key));
+    const carry = calcCarry(carryIn, lots, prev, src, opts);
     const hw = calcHwaseong(taken, src, opts);
     const stock = calcStock(lots, src, opts);
     const totalShip = src.Sh.reduce((a, r) => a + r.amt, 0);
@@ -362,11 +423,11 @@ const Engine = (() => {
     const P당월 = { 매출: s(lots, '매출'), 원료: s(lots, '원료'), 자재: s(lots, '자재') };
     const P전월 = { 매출: s(prev, '매출'), 원료: s(prev, '원료'), 자재: s(prev, '자재') };
     const P = { 매출: P당월.매출 + P전월.매출, 원료: P당월.원료 + P전월.원료, 자재: P당월.자재 + P전월.자재 };
-    const Hl = { 매출: s(lots, 'H매출'), 원료: s(lots, 'H원료'), 자재: s(lots, 'H자재') };
+    const Hl = { 매출: s(lotsAll, 'H매출'), 원료: s(lotsAll, 'H원료'), 자재: s(lotsAll, 'H자재') };
     const Hu = { 매출: s(hw, '매출'), 원료: s(hw, '원료'), 자재: s(hw, '자재'), 미확인매출: hw.filter(g => g.원가 == null).reduce((a, g) => a + g.매출, 0) };
     const H = { 매출: Hl.매출 + Hu.매출, 원료: Hl.원료 + Hu.원료, 자재: Hl.자재 + Hu.자재 };
     const 미확인 = { 평택: [...lots, ...prev].filter(o => o.매출 && o.원가 == null).reduce((a, o) => a + o.매출, 0) };
-    return { opts, lotSheet: lotInfo.sheet, lots, prev, hw, stock, totalShip, P, P당월, P전월, H, Hl, Hu, 미확인 };
+    return { opts, lotSheet: lotInfo.sheet, lots, prev, hw, stock, carry, totalShip, P, P당월, P전월, H, Hl, Hu, 미확인 };
   }
   return { run, readLots, T, N, RATIO, DEFAULT_RULES };
 })();

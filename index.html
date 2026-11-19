@@ -223,6 +223,7 @@ tr.click:hover td{background:var(--bg)}
 .hist{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:12px;color:var(--muted)}
 .hist .chip2.cur{background:var(--fg);color:var(--surface);border-color:var(--fg)}
 .hist .chip2.cur .n{color:var(--surface)}
+.pane td.warn{color:var(--warn)}
 .csrc{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg);font-size:12.5px}
 .csrc .h{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-bottom:8px}
 .csrc .h b{font-size:13px}
@@ -388,6 +389,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
         <button class="tab" role="tab" id="tab-rv" aria-selected="true" aria-controls="pane">검수<span class="c" id="cRv"></span></button>
         <button class="tab" role="tab" id="tab-pt" aria-selected="false" aria-controls="pane">평택 당월 로트<span class="c" id="cPt"></span></button>
         <button class="tab" role="tab" id="tab-pv" aria-selected="false" aria-controls="pane">평택 전월 생산<span class="c" id="cPv"></span></button>
+        <button class="tab" role="tab" id="tab-cy" aria-selected="false" aria-controls="pane">이월 검토<span class="c" id="cCy"></span></button>
         <button class="tab" role="tab" id="tab-st" aria-selected="false" aria-controls="pane">미출고 재고<span class="c" id="cSt"></span></button>
         <button class="tab" role="tab" id="tab-hs" aria-selected="false" aria-controls="pane">화성 품목별<span class="c" id="cHs"></span></button>
         <button class="tab" role="tab" id="tab-ck" aria-selected="false" aria-controls="pane">확인사항<span class="c" id="cCk"></span></button>
@@ -427,10 +429,25 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
         </ol>
       </section>
       <section>
+        <h4>매출 = 출하 기준</h4>
+        <ul>
+          <li>출하대장의 출고일자가 당월인 출하의 공급가액이 매출입니다(출하된 날 매출 인식). 수주단가·발주 수량으로 매출을 잡지 않습니다</li>
+          <li>로트번호를 「1726C003-1」처럼 나눠 적은 파일도 출하대장 로트(1726C003)에 맞춰, 어느 파일을 넣어도 출하 한 건은 한 번만 셉니다. 맞춘 로트는 확인 칸에 표시합니다</li>
+        </ul>
+      </section>
+      <section>
         <h4><span class="tag pt">평택</span> 전월 생산 출하</h4>
         <ul>
-          <li>로트목록에 없지만 작업지시번호가 10-30이거나 출하 현장이 비오팜2공장인 출하</li>
+          <li>로트목록의 「전월」 구역에 적힌 로트, 그리고 로트목록에 없지만 작업지시번호가 10-30이거나 출하 현장이 비오팜2공장인 출하</li>
           <li><b>원가</b> = 출하중량 × (생산월 단가대장 제조금액 ÷ 생산중량). 생산월 = 보관함의 이전 달 로트목록 생산귀속 월(예: 7월마감). 생산월이나 그 달 대장이 없으면 빈칸</li>
+        </ul>
+      </section>
+      <section>
+        <h4>이월 검토</h4>
+        <ul>
+          <li>이월 수량 = 보관함 이전 달 로트목록의 완료수량 − 생산월부터 전달까지 출하대장 출하량</li>
+          <li>이번 달 출하와 나란히 보여 주고(전량 출하 · 일부 출하 · 계속 이월), 이번 달에 어디로 반영됐는지와 생산월 원가를 함께 봅니다</li>
+          <li>중간 달 출하대장이 보관함에 없으면 이월 수량을 정하지 않습니다(추정하지 않음)</li>
         </ul>
       </section>
       <section>
@@ -769,17 +786,20 @@ function refresh(err) {
 const SLOT_KIND = { lots: 'lots', ship: 'ship', order: 'order', wo: 'wo', ledCur: 'led', ledPrev: 'led', ledPrev2: 'led', fco: 'fco' };
 async function slotToArch(ids) {
   if (!ids.length || typeof IDB === 'undefined') return;
-  const ym = ymNow(), recs = [], skipped = [];
+  const ym = ymNow(), recs = [], skipped = [], processed = new Set();
   for (const id of ids) {
     const f = FILLED[id]; if (!f) continue;
     const B = bookFromSlots(XLSX, { [id]: f }, curMonth());
     if (B.warn.length || !B.sheets.length) { skipped.push(SLOT_NAME[id]); continue; }
+    // 가공 여부는 파일 전체로 판단 (같은 파일의 다른 시트에 제공자료·전월 생산 구역이 있으면 가공본)
+    if (!RULES.allowProcessed && Archive.isProcessed(sheetsOf(XLSX, f.wb))) { processed.add(f.file); continue; }
     const res = Archive.ingestSheets(B.sheets, f.file, new Date(), { ...RULES, forceKind: SLOT_KIND[id] });
     // 칸에 넣은 자료는 그 칸의 달로 저장 (생산귀속·시트 월이 없는 로트목록·FCO)
     res.needMonth.forEach(r => { if (r.kind === 'lots' || r.kind === 'fco') { r.ym = id === 'fco' || id === 'lots' ? ym : null; if (r.ym) { r.key = `${r.kind}:${r.ym}`; res.records.push(r); } } });
     recs.push(...res.records);
     if (!res.records.length) skipped.push(SLOT_NAME[id]);
   }
+  if (processed.size) $('status').textContent += ` · 가공 파일로 보여 보관함에는 넣지 않음(${[...processed].join(', ')}) — 계산에는 출하 기준으로 사용`;
   if (!recs.length) { if (skipped.length) $('status').textContent += ` · 보관함에 저장 못 함: ${skipped.join(', ')}`; return; }
   try {
     const log = await archSave(recs);
@@ -1223,13 +1243,14 @@ function render() {
   $('sumNote').textContent = `원료 = 반제품+주정, 자재 = 나머지. 단가대장 기준 재료비입니다.${miss ? ` 원가를 찾지 못한 매출(${miss})은 매출에만 들어갑니다.` : ''}`;
   $('cPt').textContent = R.lots.length; $('cPv').textContent = R.prev.length; $('cHs').textContent = R.hw.length;
   $('cSt').textContent = R.stock.rows.length; $('cCk').textContent = flagsOf(R).length;
+  $('cCy').textContent = R.carry ? R.carry.rows.length : '–';
   renderPane();
 }
 
 let ST_FILTER = 'pt';
 function renderPane() {
   const R = RES; if (!R) return;
-  ['rv', 'pt', 'pv', 'st', 'hs', 'ck'].forEach(t => $('tab-' + t).setAttribute('aria-selected', String(t === TAB)));
+  ['rv', 'pt', 'pv', 'cy', 'st', 'hs', 'ck'].forEach(t => $('tab-' + t).setAttribute('aria-selected', String(t === TAB)));
   const flagsHtml = fs => fs.map(f => `<span class="flag">${esc(f)}</span>`).join(' ');
   const chk = id => isChecked(id) ? ' <span class="chk">확인</span>' : '';
   let h = '', note = '', tools = '';
@@ -1246,6 +1267,21 @@ function renderPane() {
         <td class="num">${won(o.shipQty)}</td><td class="num">${won(o.shipW)}</td><td class="num">${won(o.매출)}</td><td class="num">${o.원가월 ?? '–'}</td><td class="num">${won(o.원료)}</td><td class="num">${won(o.자재)}</td><td class="num">${pct(o.원가율)}</td>
         <td class="t">${flagsHtml(o.flags)}</td></tr>`).join('') + '</tbody></table>' : '<p style="padding:16px;margin:0" class="muted">로트목록에 없는 평택 출하가 없습니다.</p>';
     note = '로트목록에 없지만 작업지시번호 10-30 또는 출하 현장 비오팜2공장인 출하입니다. 원가는 생산월 단가 대장으로만 계산합니다. 생산월은 로트목록의 생산귀속 월(보관함의 이전 달 로트목록)로만 정하고, 생산월이나 그 달 대장이 없으면 빈칸으로 둡니다.';
+  } else if (TAB === 'cy') {
+    const C = R.carry;
+    if (!C) {
+      h = '<p style="padding:16px;margin:0" class="muted">이월을 볼 자료가 없습니다. 보관함에 이전 달 로트목록과 그 달 출하대장이 있으면, 전달까지 출하되지 않고 남은 로트를 이번 달 출하와 함께 보여 줍니다.</p>';
+    } else {
+      const stCls = x => /전량/.test(x) ? '' : /일부|확인 불가/.test(x) ? 'warn' : 'muted';
+      const sumQ = C.rows.reduce((a, r) => a + r.당월매출, 0);
+      tools = `<div class="tools"><span class="muted" style="font-size:12.5px">${Archive.label(C.asOf)}까지 이월 ${C.rows.length}개 · 이번 달 출하 매출 ${won(sumQ)}원${C.unknown ? ` · 이월 여부를 알 수 없어 뺀 로트 ${C.unknown}개(중간 달 출하대장 없음)` : ''}</span></div>`;
+      h = C.rows.length ? `<table><thead><tr><th class="t">생산월</th><th class="t">로트번호</th><th class="t">제품명</th><th class="t">생산구분</th><th>완료수량</th><th>이전 출하</th><th>이월 수량</th><th>이번 달 출하</th><th>이번 달 매출</th><th>남은 수량</th><th class="t">상태</th><th class="t">이번 달 반영</th><th>원가월</th><th>재료원가</th><th class="t">확인</th></tr></thead><tbody>` +
+        C.rows.map(r => `<tr><td class="t num">${Number(r.생산월.slice(5))}월</td><td class="t num">${esc(r.로트번호)}</td><td class="t name" title="${esc(r.제품명)}">${esc(r.제품명)}</td><td class="t">${esc(r.생산구분)}</td>
+          <td class="num">${won(r.완료수량)}</td><td class="num">${r.이전출하 == null ? '?' : won(r.이전출하)}</td><td class="num">${r.이월수량 == null ? '?' : won(r.이월수량)}</td><td class="num">${won(r.당월출하량)}</td><td class="num">${won(r.당월매출)}</td><td class="num">${r.남은수량 == null ? '?' : won(r.남은수량)}</td>
+          <td class="t ${stCls(r.상태)}">${esc(r.상태)}</td><td class="t muted">${esc(r.반영)}</td><td class="num">${r.원가월 ?? '–'}</td><td class="num">${won(r.원가)}</td><td class="t">${flagsHtml(r.flags)}</td></tr>`).join('') + '</tbody></table>'
+        : '<p style="padding:16px;margin:0" class="muted">이월된 로트가 없습니다.</p>';
+    }
+    note = '이월 = 보관함의 이전 달 로트목록 완료수량 − 생산월부터 전달까지 출하대장 출하량. 이번 달 출하는 출하일 기준으로 이번 달 매출에 들어가며, 원가는 생산월 단가대장으로 계산합니다(평택 전월 생산 탭과 같은 값). 중간 달 출하대장이 없으면 이월 수량을 정하지 않습니다.';
   } else if (TAB === 'st') {
     const rows = R.stock.rows.filter(r => ST_FILTER === 'all' || (ST_FILTER === 'pt' ? r.공장 === '평택' : r.공장 !== '평택'));
     const saved = store.get('hpcost.stock', {});
@@ -1275,7 +1311,7 @@ function renderPane() {
   $('paneWrap').innerHTML = tools + `<div class="pane scroll" id="pane" role="tabpanel">${h}</div>`;
   $('paneNote').textContent = note;
 }
-['rv', 'pt', 'pv', 'st', 'hs', 'ck'].forEach(t => $('tab-' + t).onclick = () => { TAB = t; renderPane(); });
+['rv', 'pt', 'pv', 'cy', 'st', 'hs', 'ck'].forEach(t => $('tab-' + t).onclick = () => { TAB = t; renderPane(); });
 $('paneWrap').onclick = e => {
   const st = e.target.closest('[data-st]'); if (st) { ST_FILTER = st.dataset.st; renderPane(); return; }
   if (e.target.id === 'saveStock') {

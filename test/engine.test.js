@@ -7,12 +7,14 @@ const Report = require('../src/report.js');
 const { fixtureWorkbook } = require('../fixtures/sample.js');
 
 const R = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()));
-const lot = id => R.lots.find(o => o.로트번호 === id);
+const lot = id => R.lots.find(o => o.로트번호 === id) || R.prev.find(o => o.로트번호 === id);
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-6, `${msg}: ${a} ≠ ${b}`);
 
-test('로트목록: 당월 4개 + 전월 구간 1개, 당월 자동 인식, 생산구분 → 평택비율', () => {
-  assert.equal(R.lots.length, 5);
-  assert.deepEqual(R.lots.map(o => o.구분), ['당월', '당월', '당월', '당월', '전월']);
+test('로트목록: 당월 4개 + 전월 구간 1개(→ 전월 생산), 당월 자동 인식, 생산구분 → 평택비율', () => {
+  assert.equal(R.lots.length, 4);
+  assert.deepEqual(R.lots.map(o => o.구분), ['당월', '당월', '당월', '당월']);
+  const t4 = R.prev.find(o => o.로트번호 === 'T004');
+  assert.equal(t4.구분, '전월 생산'); assert.equal(t4.근거, '로트목록 전월 구역');
   assert.equal(R.opts.month, 9);
   assert.equal(lot('T001').K, 1); assert.equal(lot('T003').K, 0.8);
 });
@@ -54,12 +56,12 @@ test('출하 안 된 로트: 매출·원가 0, 잔량을 재료비로 남김', (
 });
 
 test('로트목록에 없는 평택 출하(작업지시 10-30) → 전월 생산, 생산월은 보관함 이전 달 로트목록으로만', () => {
-  assert.equal(R.prev.length, 1);
-  const o = R.prev[0];
+  assert.equal(R.prev.length, 2, '전월 구역 T004 + 로트목록에 없는 T005');
+  const o = R.prev.find(x => x.로트번호 === 'T005');
   assert.equal(o.로트번호, 'T005'); assert.equal(o.원가, null, '이전 달 로트목록이 없으면 빈칸');
   assert.ok(o.flags.some(f => f.includes('생산월 확인 불가')));
   const R2 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { history: { lotMonth: new Map([['1AA0000003|T005', 8]]) } });
-  const p = R2.prev[0];
+  const p = R2.prev.find(x => x.로트번호 === 'T005');
   assert.equal(p.원가월, 8); assert.match(p.생산월근거, /보관함/);
   near(p.매출, 390000, '매출'); near(p.원가, 560000, '56kg × 10,000'); near(p.원료, 400000, '원료');
 });
@@ -67,7 +69,7 @@ test('로트목록에 없는 평택 출하(작업지시 10-30) → 전월 생산
 test('추정하지 않음: 생산월 단가대장이 없으면 원가 빈칸(당월 대장으로 대신하지 않음)', () => {
   const wb = fixtureWorkbook(); wb.SheetNames = wb.SheetNames.filter(n => !n.startsWith('8월'));
   const R2 = Engine.run(bookFromWorkbook(XLSX, wb));
-  const t4 = R2.lots.find(o => o.로트번호 === 'T004'), t5 = R2.prev.find(o => o.로트번호 === 'T005');
+  const t4 = R2.prev.find(o => o.로트번호 === 'T004'), t5 = R2.prev.find(o => o.로트번호 === 'T005');
   assert.equal(t4.원가, null); assert.equal(t5.원가, null);
   assert.ok(t4.flags.some(f => f.includes('원가 빈칸'))); assert.ok(t5.flags.some(f => f.includes('원가 빈칸')));
   near(R2.미확인.평택, 975000 + 390000, '원가 미확인 평택 매출');
@@ -76,11 +78,11 @@ test('추정하지 않음: 생산월 단가대장이 없으면 원가 빈칸(당
 
 test('규칙 바꾸기: 평택 판단·주정 코드', () => {
   const R2 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { rules: { ptWo: '10-99', ptSite: '없는현장' } });
-  assert.equal(R2.prev.length, 0, '평택 판단 기준을 바꾸면 전월 생산으로 잡히지 않음');
+  assert.ok(!R2.prev.some(o => o.로트번호 === 'T005'), '평택 판단 기준을 바꾸면 T005는 전월 생산으로 잡히지 않음');
   const R3 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { rules: { alcohol: [] } });
   near(R3.lots.find(o => o.로트번호 === 'T001').원료, 150000, '주정을 원료에서 빼면 반제품만');
   const R4 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()));
-  assert.equal(R4.prev.length, 1, '다음 계산은 기본 규칙으로 돌아감');
+  assert.equal(R4.prev.length, 2, '다음 계산은 기본 규칙으로 돌아감');
 });
 
 test('보관함: 월 옮기기·로트 수정은 수정 이력을 남김', () => {
@@ -104,7 +106,8 @@ test('화성 품목: 출하중량 × kg당 제조원가', () => {
 
 test('평택 + 화성 = 출하대장 합계', () => {
   near(R.totalShip, 14165000, '총 출하');
-  near(R.P당월.매출, 5775000, '평택 당월 매출'); near(R.P당월.원료, 2020000, '평택 당월 원료'); near(R.P당월.자재, 780000, '평택 당월 자재');
+  near(R.P당월.매출, 4800000, '평택 당월 매출'); near(R.P당월.원료, 1020000, '평택 당월 원료'); near(R.P당월.자재, 380000, '평택 당월 자재');
+  near(R.P전월.매출, 975000 + 390000, '전월 생산(전월 구역 + 로트목록에 없는 출하)');
   near(R.P.매출, 6165000, '평택 매출(전월 포함)');
   near(R.H.매출, 8000000, '화성 매출');
   near(R.P.매출 + R.H.매출, R.totalShip, '합계 일치');
@@ -135,7 +138,7 @@ test('엑셀 보고서: 시트 6개, 요약 합계 행, 버전 정보', () => {
   const rows = XLSX.utils.sheet_to_json(wb.Sheets['요약'], { header: 1 });
   assert.equal(rows[7][0], '합계'); assert.equal(rows[7][1], 14165000);
   assert.ok(rows.some(r => r[0] === '계산기 버전'));
-  assert.equal(XLSX.utils.sheet_to_json(wb.Sheets['평택_당월로트']).length, 5);
+  assert.equal(XLSX.utils.sheet_to_json(wb.Sheets['평택_당월로트']).length, 4);
 });
 
 test('사용자 설정: 비율 직접 지정', () => {
@@ -228,4 +231,52 @@ test('칸: 잘못된 칸에 넣으면 빠진 열을 알려줌, 전월 단가 대
   const sn = wb.SheetNames.find(n => n.includes('자재투입'));
   const B2 = bookFromSlots(XLSX, { order: { wb, file: 'x.xlsx', sheet: sn } }, 9);
   assert.deepEqual(B2.warn[0].missing, ['LOT', '매출월', '수주단가']);
+});
+
+test('출하 기준: 로트번호를 -1/-2로 나눠 적어도 같은 출하로 맞춤 (어느 파일이든 매출 같음)', () => {
+  const base = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()));
+  // 출하대장 쪽 로트를 T001-1로 바꿈
+  const wb = fixtureWorkbook(); const sn = wb.SheetNames.find(n => n.includes('출하대장')); const ws = wb.Sheets[sn];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+  const li = aoa[0].indexOf('로트번호'); aoa.forEach((r, i) => { if (i && r[li] === 'T001') r[li] = 'T001-1'; });
+  wb.Sheets[sn] = XLSX.utils.aoa_to_sheet(aoa);
+  const R2 = Engine.run(bookFromWorkbook(XLSX, wb));
+  near(R2.P.매출, base.P.매출, '평택 매출 같음'); near(R2.H.매출, base.H.매출, '화성 매출 같음');
+  assert.ok(R2.lots.find(o => o.로트번호 === 'T001').flags.some(f => f.includes('T001-1')));
+  // 로트목록 쪽을 T001-1로 바꿔도 같음
+  const wb2 = fixtureWorkbook(); const ln = wb2.SheetNames[0]; const a2 = XLSX.utils.sheet_to_json(wb2.Sheets[ln], { header: 1, defval: null });
+  a2.forEach(r => r.forEach((v, j) => { if (v === 'T001') r[j] = 'T001-1'; })); wb2.Sheets[ln] = XLSX.utils.aoa_to_sheet(a2);
+  const R3 = Engine.run(bookFromWorkbook(XLSX, wb2));
+  near(R3.P.매출, base.P.매출, '로트목록 쪽 -1도 같음');
+});
+
+test('이월 검토: 이전 달 로트목록 − 출하대장 = 이월, 이번 달 출하와 함께', () => {
+  const A = require('../src/archive.js');
+  const all = {
+    'lots:2026-08': { key: 'lots:2026-08', kind: 'lots', ym: '2026-08', rows: [A.LOT_HDR, ['1AA0000003', 'T005', '가', '홍길동', '평택', 1000, 0, '8월마감', ''], ['1AA0000009', 'Z9', '나', '홍길동', '평택', 500, 0, '8월마감', '']] },
+    'ship:2026-08': { key: 'ship:2026-08', kind: 'ship', ym: '2026-08', rows: [['h'], ['2026.08.30', 'x', 1, '홍길동', '1AA0000003', '가', '', 'T005', '', 200, '', 1, 0, 1000, '']] },
+  };
+  const b = A.buildBook(all, '2026-09');
+  const c = b.history.carry.rows.find(r => r.로트번호 === 'T005');
+  assert.equal(c.이월수량, 800); assert.equal(c.이전출하, 200);
+  const R2 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { history: b.history });
+  const t5 = R2.carry.rows.find(r => r.로트번호 === 'T005');
+  assert.ok(t5.당월출하량 > 0); assert.match(t5.반영, /전월 생산/);
+  const z9 = R2.carry.rows.find(r => r.로트번호 === 'Z9');
+  assert.equal(z9.상태, '미출하 · 계속 이월');
+  // 중간 달 출하대장이 없으면 이월 수량을 정하지 않음(추정하지 않음)
+  const b2 = A.buildBook({ 'lots:2026-07': { ...all['lots:2026-08'], key: 'lots:2026-07', ym: '2026-07' } }, '2026-09');
+  const R3 = Engine.run(bookFromWorkbook(XLSX, fixtureWorkbook()), { history: b2.history });
+  assert.equal(R3.carry.rows.find(r => r.로트번호 === 'T005').이월수량, null);
+  assert.ok(!R3.carry.rows.some(r => r.로트번호 === 'Z9'), '출하도 없고 이월도 알 수 없으면 목록에서 빼고 개수만');
+  assert.equal(R3.carry.unknown, 1);
+});
+
+test('가공 파일((확인) 열·전월 생산 구역)은 보관함에 넣지 않음', () => {
+  const A = require('../src/archive.js');
+  const raw = [{ name: '9월', rows: [['제품코드\n(제공자료)', '로트번호\n(제공자료)', '완료수량'], ['1A', 'L1', 1]] }];
+  const proc = [{ name: '당월 생산', rows: [['제품코드\n(제공자료)', '로트번호\n(확인)', '완료수량'], ['1A', 'L1', 1], ['전월 생산']] }];
+  assert.equal(A.isProcessed(raw), false); assert.equal(A.isProcessed(proc), true);
+  const out = A.ingestSheets(proc, '가공.xlsx', new Date('2026-11-19'), {});
+  assert.equal(out.records.length, 0); assert.match(out.skipped[0].reason, /가공 파일/);
 });

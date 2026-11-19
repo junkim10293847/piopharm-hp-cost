@@ -79,6 +79,9 @@ const Archive = (() => {
   // record = { key: 'led:2026-09' | 'ship:…' | 'fco:…' | 'lots:…' | 'order' | 'wo', kind, ym, rows, n, src }
   // rules: { ledMonth: 'close'(시트 이름의 마감월) | 'date'(작업일자), exclude: ['이월', …] }
   function ingest(XLSX, wb, fileName, today = new Date(), rules = {}) { return ingestSheets(P.sheetsOf(XLSX, wb), fileName, today, rules); }
+  function isProcessed(sheets) {
+    return sheets.some(s => s.rows.slice(0, 80).some(r => (r || []).some(v => { const c = clean(v); return /\(확인\)$/.test(c) || c === '전월생산'; })));
+  }
   function ingestSheets(allSheets, fileName, today = new Date(), rules = {}) {
     const ledMonth = rules.ledMonth || 'close';
     const exWords = rules.exclude && rules.exclude.length ? rules.exclude : ['이월', '취소', '보류', '예정'];
@@ -86,6 +89,13 @@ const Archive = (() => {
     const out = { records: [], skipped: [], needMonth: [], notes: [] };
     const sheets = allSheets.filter(s => s.rows.some(r => (r || []).some(v => v != null && v !== '')));
     const fileM = monthIn(fileName);
+    // 가공 파일(사람이 손본 작업 파일)은 보관함에 넣지 않음: '(제공자료)'·'(확인)' 머리글 또는 '전월 생산' 구역이 있는 로트 시트
+    const processed = isProcessed(sheets);
+    if (processed && !rules.allowProcessed) {
+      sheets.forEach(s => out.skipped.push({ src: `${fileName} · ${s.name.trim() || '(이름 없음)'}`, reason: '가공 파일로 보임(「(확인)」 열 또는 전월 생산 구역) — 미가공 원본을 넣어 주세요' }));
+      out.processed = true;
+      return out;
+    }
     for (const s of sheets) {
       let k = kindOf(s, fileName, sheets.length === 1);
       if (rules.forceKind) {
@@ -231,9 +241,28 @@ const Archive = (() => {
       const mm = Number(r.ym.slice(5));
       r.rows.slice(1).forEach(x => { const k = x[0] + '|' + x[1]; if (lotMonth.has(k) && lotMonth.get(k) !== mm) conflict.push(k); else lotMonth.set(k, mm); });
     });
-    return { book: { sheets }, history: { lotMonth, conflict }, missing, ledMonths: leds.map(r => r.ym).sort() };
+    // 이월: 이전 달 로트목록 완료수량 − 생산월부터 직전 달까지 출하량 (출하대장 기준)
+    const add = (a, k) => { const [yy, mm] = a.split('-').map(Number), t = yy * 12 + mm - 1 + k; return `${Math.floor(t / 12)}-${pad(t % 12 + 1)}`; };
+    const pym = add(ym, -1), carryRows = [];
+    const shipBy = new Map();   // ym → Map(key → qty)
+    Object.values(all).filter(r => r.kind === 'ship' && within(r.ym) && r.ym !== ym).forEach(r => {
+      const m2 = new Map(); r.rows.slice(1).forEach(x => { const lot = T(x[7]), k = T(x[4]) + '|' + lot, q = Number(x[9]) || 0; m2.set(k, (m2.get(k) || 0) + q);
+        const b = lot.match(/^(.+?)-\d{1,2}$/); if (b) { const kb = T(x[4]) + '|' + b[1]; m2.set('~' + kb, (m2.get('~' + kb) || 0) + q); } });
+      shipBy.set(r.ym, m2);
+    });
+    Object.values(all).filter(r => r.kind === 'lots' && within(r.ym) && r.ym !== ym).forEach(r => {
+      const months = []; for (let y = r.ym; y <= pym; y = add(y, 1)) months.push(y);
+      const gaps = months.filter(y => !shipBy.has(y)).map(y => Number(y.slice(5)) + '월');
+      r.rows.slice(1).forEach(x => {
+        const k = T(x[0]) + '|' + T(x[1]), made = Number(x[5]) || 0;
+        const shipped = months.reduce((a, y) => { const m2 = shipBy.get(y); return a + (m2 ? (m2.get(k) || 0) + (m2.get('~' + k) || 0) : 0); }, 0);
+        if (made - shipped > 0) carryRows.push({ 생산월: r.ym, 제품코드: T(x[0]), 로트번호: T(x[1]), 제품명: T(x[2]), 고객사: T(x[3]), 생산구분: T(x[4]), 완료수량: made, 이전출하: shipped, 이월수량: made - shipped, 빈달: gaps });
+      });
+    });
+    const carry = carryRows.length ? { asOf: pym, rows: carryRows } : null;
+    return { book: { sheets }, history: { lotMonth, conflict, carry }, missing, ledMonths: leds.map(r => r.ym).sort() };
   }
 
-  return { ingest, ingestSheets, merge, buildBook, moveRecord, editLots, ymOf, label, ymFromMonth, LOT_HDR };
+  return { ingest, ingestSheets, isProcessed, merge, buildBook, moveRecord, editLots, ymOf, label, ymFromMonth, LOT_HDR };
 })();
 if (typeof module !== 'undefined' && typeof window === 'undefined') module.exports = Archive;
