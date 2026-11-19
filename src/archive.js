@@ -91,7 +91,9 @@ const Archive = (() => {
     const fileM = monthIn(fileName);
     // 가공 파일(사람이 손본 작업 파일)은 보관함에 넣지 않음: '(제공자료)'·'(확인)' 머리글 또는 '전월 생산' 구역이 있는 로트 시트
     const processed = isProcessed(sheets);
-    if (processed && !rules.allowProcessed) {
+    // 가공 파일도 받음(v3.7): 로트목록은 사람이 확인해 고친 열(제품코드·로트번호(확인))로, 「전월 생산」 구역은 그 달 파일에서 이미 저장되므로 뺌.
+    // 출하대장·단가대장·발주·작업지시는 미가공 원본이 이미 있으면 바꾸지 않음(merge에서)
+    if (processed && rules.blockProcessed) {
       sheets.forEach(s => out.skipped.push({ src: `${fileName} · ${s.name.trim() || '(이름 없음)'}`, reason: '가공 파일로 보임(「(확인)」 열 또는 전월 생산 구역) — 미가공 원본을 넣어 주세요' }));
       out.processed = true;
       return out;
@@ -175,16 +177,22 @@ const Archive = (() => {
           const g = T(l.생산귀속);
           if (exRe.test(g)) { skip.push(`${l.로트번호}(${g})`); continue; }
           let m = monthIn(g);
-          if (!m && l.구분 === '전월' && sheetM) m = sheetM === 1 ? 12 : sheetM - 1;
-          const row = [l.제품코드, l.로트번호, l.제품명, l.고객사, l.생산구분, l.완료수량, l.완료단가, g, ''];
+          let gOut = g;
+          if (processed) {
+            // 「전월 생산」 구역·시트: 이번 달에 출하된 이전 생산분 — 그 달 로트목록에 「전월」로 함께 저장(생산월로 쓰지 않음)
+            if (l.구분 === '전월' || /전월/.test(s.name)) { m = fileM || sheetM; gOut = '전월'; skip.push(l.로트번호); }
+            else if (!m) m = sheetM || fileM;          // 가공 파일 「당월 생산」 = 파일의 달, 「실제 9월 생산이지만…」 = 시트 이름의 달
+          } else if (!m && l.구분 === '전월' && sheetM) m = sheetM === 1 ? 12 : sheetM - 1;
+          const row = [l.제품코드, l.로트번호, l.제품명, l.고객사, l.생산구분, l.완료수량, l.완료단가, typeof gOut === 'undefined' ? g : gOut, ''];
           if (/^10[A-Z]/.test(l.제품코드)) row[8] = '제품코드 확인(O를 0으로 입력한 것으로 보임)';
           if (!m) { noMonth.push(row); continue; }
           const ym = ymFromMonth(m, today);
           if (!groups.has(ym)) groups.set(ym, []);
           groups.get(ym).push(row);
         }
-        for (const [ym, rows] of groups) out.records.push({ key: `lots:${ym}`, kind: 'lots', ym, rows: [LOT_HDR, ...rows], n: rows.length, src });
-        if (skip.length) out.notes.push(`${src}: 생산귀속이 ${exWords.join('·')}인 ${skip.length}개는 저장하지 않음 (${skip.slice(0, 5).join(', ')}${skip.length > 5 ? ' 외' : ''})`);
+        for (const [ym, rows] of groups) out.records.push({ key: `lots:${ym}`, kind: 'lots', ym, rows: [LOT_HDR, ...rows], n: rows.length, src, ...(processed ? { processed: true } : {}) });
+        if (skip.length && processed) out.notes.push(`${src}: 전월 생산 구역 ${skip.length}개는 생산귀속 「전월」로 함께 저장(이번 달 출하용, 생산월로는 쓰지 않음)`);
+        else if (skip.length) out.notes.push(`${src}: 생산귀속이 ${exWords.join('·')}인 ${skip.length}개는 저장하지 않음 (${skip.slice(0, 5).join(', ')}${skip.length > 5 ? ' 외' : ''})`);
         const typo = [...groups.values()].flat().filter(r => r[8]).map(r => r[0]);
         if (typo.length) out.notes.push(`${src}: 제품코드 형식 확인 필요 ${[...new Set(typo)].join(', ')} (O 대신 0?) — 고치지 않고 그대로 저장`);
         if (noMonth.length) out.needMonth.push({ key: null, kind: 'lots', ym: null, rows: [LOT_HDR, ...noMonth], n: noMonth.length, src });
@@ -192,11 +200,16 @@ const Archive = (() => {
       }
       out.skipped.push({ src, reason: '종류를 알 수 없음' });
     }
+    if (processed) { out.processed = true; out.records.forEach(r => { r.processed = true; }); }
     return out;
   }
 
   // 같은 자리에 저장할 때: 로트목록은 제품코드+로트로 합치고(새 것 우선), 나머지는 새 것으로 바꿈
   function merge(oldRec, newRec) {
+    if (oldRec && newRec.processed && newRec.kind !== 'lots') {
+      // 가공 파일의 출하대장·단가대장·발주·작업지시: 미가공 원본이 있으면 그대로 두고, 가공본끼리는 행이 많은(최신) 쪽
+      if (!oldRec.processed || ((newRec.kind === 'order' || newRec.kind === 'wo') && newRec.n < oldRec.n)) return { ...oldRec, keptOld: true };
+    }
     if (!oldRec || newRec.kind !== 'lots') return { ...newRec, savedAt: new Date().toISOString() };
     const ok = r => ['평택', '화성포장', '멀티연질', '정제화성', '화성'].includes(T(r[4])) && r[5] != null;
     const map = new Map(oldRec.rows.slice(1).map(r => [r[0] + '|' + r[1], r]));
@@ -237,10 +250,10 @@ const Archive = (() => {
     leds.forEach(r => sheets.push(sheet(`${Number(r.ym.slice(5))}월 제품 단가 대장`, r.rows)));
     const fco = all[`fco:${ym}`]; if (fco) sheets.push(sheet(`${m}월 FCO`, fco.rows));
     // 생산월 기록: 이전 달 로트목록의 제품코드+로트 → 생산귀속 월
-    const lotMonth = new Map(), conflict = [];
+    const lotMonth = new Map(), lotLine = new Map(), conflict = [];
     Object.values(all).filter(r => r.kind === 'lots' && within(r.ym) && r.ym !== ym).sort((a, b) => a.ym < b.ym ? -1 : 1).forEach(r => {
       const mm = Number(r.ym.slice(5));
-      r.rows.slice(1).forEach(x => { const k = x[0] + '|' + x[1]; if (lotMonth.has(k) && lotMonth.get(k) !== mm) conflict.push(k); else lotMonth.set(k, mm); });
+      r.rows.slice(1).forEach(x => { if (T(x[7]) === '전월') return; const k = x[0] + '|' + x[1]; if (T(x[4])) lotLine.set(k, T(x[4])); if (lotMonth.has(k) && lotMonth.get(k) !== mm) conflict.push(k); else lotMonth.set(k, mm); });
     });
     // 이월: 이전 달 로트목록 완료수량 − 생산월부터 직전 달까지 출하량 (출하대장 기준)
     const add = (a, k) => { const [yy, mm] = a.split('-').map(Number), t = yy * 12 + mm - 1 + k; return `${Math.floor(t / 12)}-${pad(t % 12 + 1)}`; };
@@ -256,6 +269,7 @@ const Archive = (() => {
       const gaps = months.filter(y => !shipBy.has(y)).map(y => Number(y.slice(5)) + '월');
       if (shipBy.has(add(r.ym, -1))) months.unshift(add(r.ym, -1));   // 생산 전달에 먼저 출하(선출하)한 것도 뺌
       r.rows.slice(1).forEach(x => {
+        if (T(x[7]) === '전월') return;
         const k = T(x[0]) + '|' + T(x[1]), made = Number(x[5]) || 0;
         const shipped = months.reduce((a, y) => { const m2 = shipBy.get(y); return a + (m2 ? (m2.get(k) || 0) + (m2.get('~' + k) || 0) : 0); }, 0);
         if (made - shipped > 0) carryRows.push({ 생산월: r.ym, 제품코드: T(x[0]), 로트번호: T(x[1]), 제품명: T(x[2]), 고객사: T(x[3]), 생산구분: T(x[4]), 완료수량: made, 이전출하: shipped, 이월수량: made - shipped, 빈달: gaps });
@@ -263,10 +277,10 @@ const Archive = (() => {
     });
     const carry = carryRows.length ? { asOf: pym, rows: carryRows } : null;
     // 익월 로트목록(선출하 확인용)과 전월 출하대장(이번 달 로트 중 먼저 나간 것)
-    const nl = all[`lots:${nym}`], next = nl ? { ym: nym, lots: new Map(nl.rows.slice(1).map(x => [T(x[0]) + '|' + T(x[1]), { 생산구분: T(x[4]), 완료수량: Number(x[5]) || 0, 제품명: T(x[2]) }])) } : null;
+    const nl = all[`lots:${nym}`], next = nl ? { ym: nym, lots: new Map(nl.rows.slice(1).filter(x => T(x[7]) !== '전월').map(x => [T(x[0]) + '|' + T(x[1]), { 생산구분: T(x[4]), 완료수량: Number(x[5]) || 0, 제품명: T(x[2]) }])) } : null;
     const ps = all[`ship:${pym}`]; let prevShip = null;
     if (ps) { prevShip = new Map(); ps.rows.slice(1).forEach(x => { const k = T(x[4]) + '|' + T(x[7]), q = Number(x[9]) || 0, a = Number(x[13]) || 0; const o = prevShip.get(k) || { qty: 0, amt: 0 }; o.qty += q; o.amt += a; prevShip.set(k, o); }); }
-    return { book: { sheets }, history: { lotMonth, conflict, carry, next, prevShip, prevShipYm: ps ? pym : null }, missing, ledMonths: leds.map(r => r.ym).sort() };
+    return { book: { sheets }, history: { lotMonth, lotLine, conflict, carry, next, prevShip, prevShipYm: ps ? pym : null }, missing, ledMonths: leds.map(r => r.ym).sort() };
   }
 
   return { ingest, ingestSheets, isProcessed, merge, buildBook, moveRecord, editLots, ymOf, label, ymFromMonth, LOT_HDR };

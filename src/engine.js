@@ -92,6 +92,8 @@ const Engine = (() => {
           const lot = T(r[cLot]); const qty = N(r[cQty]);
           if (!lot || qty == null || (cProd < 0 && cProdOk < 0)) continue;
           let line = cLine >= 0 ? T(r[cLine]) : '';
+          // 평택비율을 숫자로 적은 표(1·0.8·0.6·0.2)는 생산구분으로 바꿈
+          if (!RATIO.hasOwnProperty(line) && line !== '' && !isNaN(Number(line))) { const v = Number(line); line = v === 1 ? '평택' : v === 0.8 ? '화성포장' : v === 0.6 ? '멀티연질' : v === 0.2 ? '정제화성' : v === 0 ? '화성' : line; }
           if (!RATIO.hasOwnProperty(line)) {
             const mk = cMake >= 0 ? T(r[cMake]) : '', pk = cPack >= 0 ? T(r[cPack]) : '';
             if (mk === '평택' && pk === '평택') line = '평택';
@@ -105,7 +107,7 @@ const Engine = (() => {
           const code = codeOk || code0, lotUse = lotOk || lot;
           if (!code) continue;
           lots.push({
-            구분: section, 행: i + 1, 제품코드: code, 로트번호: lotUse, 제품명: T(r[cName]), 고객사: T(r[cCust]),
+            구분: cMonth >= 0 && T(r[cMonth]) === '전월' ? '전월' : section, 행: i + 1, 제품코드: code, 로트번호: lotUse, 제품명: T(r[cName]), 고객사: T(r[cCust]),
             ...(codeOk && code0 && codeOk !== code0 ? { 확인코드: code0 } : {}), ...(lotOk && lotOk !== lot ? { 확인로트: lot } : {}),
             생산구분: line, 완료수량: qty, 완료단가: N(r[cPrice]), 생산귀속: cMonth >= 0 ? T(r[cMonth]) : '',
           });
@@ -159,6 +161,7 @@ const Engine = (() => {
       if (lot) {
         const g = T(lot.생산귀속); const mm = g.match(/(\d{1,2})\s*월/);
         if (mm && !exRe().test(g)) return { m: Number(mm[1]), by: `로트목록 생산귀속 「${g}」` };
+        if (lot.구분 === '전월' && hist && hist.lotMonth && hist.lotMonth.has(lot.key)) return { m: hist.lotMonth.get(lot.key), by: '보관함 이전 달 로트목록' };
         if (lot.구분 === '전월') return { m: month === 1 ? 12 : month - 1, by: '로트목록 전월 구간' };
       }
       if (hist && hist.lotMonth && lot && hist.lotMonth.has(lot.key)) return { m: hist.lotMonth.get(lot.key), by: '보관함 이전 달 로트목록' };
@@ -312,8 +315,10 @@ const Engine = (() => {
         if (cc && cc.pw && !lotRows.some(l => l.제품코드 === g.제품코드 && l.cur)) { c = cc; curLed = true; }
       }
       const nx = opts.history && opts.history.next ? opts.history.next.lots.get(g.key) : null;
-      const K = nx && RATIO.hasOwnProperty(nx.생산구분) ? (opts.ratio[nx.생산구분] ?? RATIO[nx.생산구분]) : 1;
-      const o = { ...g, 구분: pm && pm.next ? '익월 생산 선출하' : '전월 생산', K, 생산구분: nx ? nx.생산구분 : '평택', shipQty, shipW, shipAmt, flags: [], od: src.Od.filter(x => x.key === g.key), 생산월: pm, 생산월근거: pm ? pm.by : null };
+      const hl = opts.history && opts.history.lotLine ? opts.history.lotLine.get(g.key) : null;
+      const lineOf = nx ? nx.생산구분 : hl;
+      const K = lineOf && RATIO.hasOwnProperty(lineOf) ? (opts.ratio[lineOf] ?? RATIO[lineOf]) : 1;
+      const o = { ...g, 구분: pm && pm.next ? '익월 생산 선출하' : '전월 생산', K, 생산구분: lineOf || '평택', shipQty, shipW, shipAmt, flags: [], od: src.Od.filter(x => x.key === g.key), 생산월: pm, 생산월근거: pm ? pm.by : null };
       o.근거 = [g.wo.some(isPtWo) ? `작업지시 ${RU.ptWo}` : null, g.sh.some(x => T(x['현장명칭']) === RU.ptSite) ? RU.ptSite : null, nx ? `${Number(opts.history.next.ym.slice(5))}월 로트목록(${nx.생산구분})` : null].filter(Boolean).join(' · ');
       if (curLed) o.flags.push(`${pm.m}월 단가대장에는 없고 ${opts.month}월 단가대장에 투입액이 있어 ${opts.month}월 투입액으로 원가`);
       if (pm && pm.next) o.flags.push(`${Number(opts.history.next.ym.slice(5))}월 생산 로트를 ${opts.month}월에 먼저 출하(출하일 기준 ${opts.month}월 매출)`);

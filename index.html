@@ -751,14 +751,14 @@ function readyRender() {
   it(FILLED.fco || ARCH[`fco:${ym}`] ? 'ok' : 'na', `${L(ym)} FCO`, '평택 미출고 기말 제품재고액 — 없으면 로트 잔량 재료비로만');
   // v2.9~v3.0 사이에 가공 파일을 칸에 넣었으면 보관함에 가공 자료가 들어갔을 수 있음 → 찾아서 빼기
   const PROC = /당월\s*생산|전월\s*생산|땡긴|내림차순|\(확인\)/;
-  const procKeys = Object.values(ARCH).filter(r => PROC.test(String(r.src || '')) || (r.kind === 'lots' && r.rows.slice(1).some(x => /-\d{1,2}$/.test(String(x[1]))))).map(r => r.key);
-  it(procKeys.length ? 'no' : 'ok', '보관함에 가공 자료', procKeys.length ? `${procKeys.map(k => kindName(ARCH[k].kind) + (ARCH[k].ym ? ' ' + L(ARCH[k].ym) : '')).join(', ')} — 가공 파일에서 들어간 것으로 보임(매출 구분이 달라질 수 있음)` : '없음');
+  const procKeys = Object.values(ARCH).filter(r => r.processed || PROC.test(String(r.src || '')) || (r.kind === 'lots' && r.rows.slice(1).some(x => /-\d{1,2}$/.test(String(x[1]))))).map(r => r.key);
+  it(procKeys.length ? 'na' : 'ok', '보관함에 가공 자료', procKeys.length ? `${procKeys.map(k => kindName(ARCH[k].kind) + (ARCH[k].ym ? ' ' + L(ARCH[k].ym) : '')).join(', ')} — 가공 파일에서 들어옴(확인 열 값 사용)` : '없음');
   READY_PROC = procKeys;
   const lv = window.__latest;
   it(lv ? (lv.same ? 'ok' : 'no') : 'na', '계산기 버전', lv ? (lv.same ? `최신(${Report.VERSION})` : `지금 ${Report.VERSION} · 최신 ${lv.version} — 새로 고침 필요`) : `${Report.VERSION} (최신 여부는 인터넷 연결 후 확인)`);
   const bad = items.filter(x => x.st === 'no').length;
   $('readySum').innerHTML = `${L(ym)} 자료 점검 — ${bad ? `<span class="no">확인할 것 ${bad}개</span>` : '<span class="ok">모두 준비됨</span>'}`;
-  $('readyBody').innerHTML = (procKeys.length ? `<div style="margin:6px 0"><button class="btn sm" type="button" id="procDel">가공 자료 ${procKeys.length}건 보관함에서 빼기</button> <span class="w">뺀 뒤 그 달 미가공 원본을 보관함에 다시 넣어 주세요</span></div>` : '') + '<ul>' + items.map(x => `<li><span class="i ${x.st}">${x.st === 'ok' ? '✓' : x.st === 'no' ? '✗' : '–'}</span><b>${esc(x.what)}</b><span class="w">${esc(x.why)}</span></li>`).join('') + '</ul>';
+  $('readyBody').innerHTML = '<ul>' + items.map(x => `<li><span class="i ${x.st}">${x.st === 'ok' ? '✓' : x.st === 'no' ? '✗' : '–'}</span><b>${esc(x.what)}</b><span class="w">${esc(x.why)}</span></li>`).join('') + '</ul>';
 }
 const XLSX_OK = () => typeof XLSX !== 'undefined';
 $('slots').onclick = e => {
@@ -843,14 +843,14 @@ async function slotToArch(ids) {
     const B = bookFromSlots(XLSX, { [id]: f }, curMonth());
     if (B.warn.length || !B.sheets.length) { skipped.push(SLOT_NAME[id]); continue; }
     // 가공 여부는 파일 전체로 판단 (같은 파일의 다른 시트에 제공자료·전월 생산 구역이 있으면 가공본)
-    if (!RULES.allowProcessed && Archive.isProcessed(sheetsOf(XLSX, f.wb))) { processed.add(f.file); continue; }
+    if (Archive.isProcessed(sheetsOf(XLSX, f.wb))) processed.add(f.file);
     const res = Archive.ingestSheets(B.sheets, f.file, new Date(), { ...RULES, forceKind: SLOT_KIND[id] });
     // 칸에 넣은 자료는 그 칸의 달로 저장 (생산귀속·시트 월이 없는 로트목록·FCO)
     res.needMonth.forEach(r => { if (r.kind === 'lots' || r.kind === 'fco') { r.ym = id === 'fco' || id === 'lots' ? ym : null; if (r.ym) { r.key = `${r.kind}:${r.ym}`; res.records.push(r); } } });
     recs.push(...res.records);
     if (!res.records.length) skipped.push(SLOT_NAME[id]);
   }
-  if (processed.size) $('status').textContent += ` · 가공 파일로 보여 보관함에는 넣지 않음(${[...processed].join(', ')}) — 계산에는 출하 기준으로 사용`;
+  if (processed.size) $('status').textContent += ` · 가공 파일(${[...processed].join(', ')})은 확인 열 값으로 보관함에 저장(미가공 원본이 있으면 원본 유지)`;
   if (!recs.length) { if (skipped.length) $('status').textContent += ` · 보관함에 저장 못 함: ${skipped.join(', ')}`; return; }
   try {
     const log = await archSave(recs);
@@ -966,8 +966,10 @@ async function archSave(recs) {
   for (const r of recs) {
     const old = next[r.key] || ARCH[r.key];
     // 훨씬 작은 자료가 큰 자료를 덮지 않게 (예: 작업용 시트의 일부 표)
-    if (old && r.kind !== 'lots' && r.n < old.n * 0.2) { log.push({ ...r, guard: `기존 ${won(old.n)}행보다 훨씬 작아(${won(r.n)}행) 바꾸지 않음 — 바꾸려면 기존 자료를 지우고 넣으세요` }); continue; }
-    const m = Archive.merge(old, r); next[r.key] = m; log.push({ ...m, n: r.n, src: r.src, kept: m.kept });
+    if (old && r.kind !== 'lots' && !r.processed && r.n < old.n * 0.2) { log.push({ ...r, guard: `기존 ${won(old.n)}행보다 훨씬 작아(${won(r.n)}행) 바꾸지 않음 — 바꾸려면 기존 자료를 지우고 넣으세요` }); continue; }
+    const m = Archive.merge(old, r);
+    if (m.keptOld) { log.push({ ...r, guard: r.kind === 'order' || r.kind === 'wo' ? `기존 ${won(old.n)}행이 더 많아 그대로 둠` : '미가공 원본이 이미 있어 그대로 둠(가공본으로 바꾸지 않음)' }); continue; }
+    next[r.key] = m; log.push({ ...m, n: r.n, src: r.src, kept: m.kept });
   }
   await IDB.put(Object.values(next));
   Object.assign(ARCH, next);

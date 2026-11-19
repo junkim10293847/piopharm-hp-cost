@@ -272,13 +272,22 @@ test('이월 검토: 이전 달 로트목록 − 출하대장 = 이월, 이번 �
   assert.equal(R3.carry.unknown, 1);
 });
 
-test('가공 파일((확인) 열·전월 생산 구역)은 보관함에 넣지 않음', () => {
+test('가공 파일도 보관함에: 로트는 확인 열·파일의 달로, 전월 구역은 「전월」 표시, 원본이 있으면 원본 유지', () => {
   const A = require('../src/archive.js');
   const raw = [{ name: '9월', rows: [['제품코드\n(제공자료)', '로트번호\n(제공자료)', '완료수량'], ['1A', 'L1', 1]] }];
-  const proc = [{ name: '당월 생산', rows: [['제품코드\n(제공자료)', '로트번호\n(확인)', '완료수량'], ['1A', 'L1', 1], ['전월 생산']] }];
+  const proc = [{ name: '당월 생산', rows: [['제품코드\n(제공자료)', '제품코드', '로트번호\n(제공자료)', '로트번호\n(확인)', '완료수량'], ['10S', '1OS', 'G', 'G-1', 5], [], ['전월 생산'], ['제품코드\n(제공자료)', '제품코드', '로트번호\n(제공자료)', '로트번호\n(확인)', '완료수량'], ['1B', '1B', 'N1', 'N1', 3]] }];
   assert.equal(A.isProcessed(raw), false); assert.equal(A.isProcessed(proc), true);
-  const out = A.ingestSheets(proc, '가공.xlsx', new Date('2026-11-19'), {});
-  assert.equal(out.records.length, 0); assert.match(out.skipped[0].reason, /가공 파일/);
+  const out = A.ingestSheets(proc, '26년 9월 원가.xlsx', new Date('2026-11-19'), {});
+  const lots = out.records.find(r => r.kind === 'lots');
+  assert.equal(lots.ym, '2026-09'); assert.equal(lots.n, 2);
+  assert.deepEqual(lots.rows[1].slice(0, 2), ['1OS', 'G-1']);
+  assert.equal(lots.rows[2][7], '전월', '전월 구역은 생산귀속 「전월」로 (생산월로 쓰지 않음)');
+  const bb = A.buildBook({ 'lots:2026-09': lots }, '2026-10');
+  assert.ok(bb.history.lotMonth.has('1OS|G-1') && !bb.history.lotMonth.has('1B|N1'));
+  // 원본 출하대장이 있으면 가공본으로 바꾸지 않음
+  const kept = A.merge({ key: 'ship:2026-09', kind: 'ship', n: 200 }, { key: 'ship:2026-09', kind: 'ship', n: 190, processed: true });
+  assert.ok(kept.keptOld);
+  assert.equal(A.ingestSheets(proc, 'x 9월.xlsx', new Date(), { blockProcessed: true }).records.length, 0);
 });
 
 test('출하 기준: 로트목록 제품코드 오타(10S ↔ 1OS)는 같은 로트의 출하대장 제품코드로 맞춤', () => {
