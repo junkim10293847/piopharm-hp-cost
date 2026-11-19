@@ -224,6 +224,14 @@ tr.click:hover td{background:var(--bg)}
 .hist .chip2.cur{background:var(--fg);color:var(--surface);border-color:var(--fg)}
 .hist .chip2.cur .n{color:var(--surface)}
 .pane td.warn{color:var(--warn)}
+.ready{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:12.5px;background:var(--surface)}
+.ready summary{cursor:pointer;font-weight:600}
+.ready summary .ok{color:var(--pt)} .ready summary .no{color:var(--warn)}
+.ready ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px}
+.ready li{display:grid;grid-template-columns:20px 190px 1fr;gap:6px;align-items:baseline}
+.ready li .i.ok{color:var(--pt)} .ready li .i.no{color:var(--warn)} .ready li .i.na{color:var(--muted)}
+.ready li .w{color:var(--muted)}
+@media (max-width:640px){.ready li{grid-template-columns:20px 1fr}.ready li .w{grid-column:2}}
 .csrc{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--bg);font-size:12.5px}
 .csrc .h{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-bottom:8px}
 .csrc .h b{font-size:13px}
@@ -303,6 +311,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
     <div class="slots" id="slots"></div>
     <div class="status" id="status" role="status" aria-live="polite"></div>
     <div class="csrc" id="csrc" hidden></div>
+    <details class="ready" id="ready"><summary id="readySum"></summary><div id="readyBody"></div></details>
   </section>
 
   <details class="arch" id="arch">
@@ -707,7 +716,32 @@ function renderSlots() {
       <div class="slot-h"><span class="no">${i + 1}</span>${title}<span class="mk">${f ? (w ? '!' : '✓') : ar ? '✓' : ''}</span></div>
       <div class="slot-hint">${esc(slot.hint)}</div>${body}</div>`;
   }).join('');
+  readyRender();
   return B;
+}
+// 이 달 계산에 쓰이는 자료 점검 — 브라우저(보관함)에 무엇이 있고 무엇이 빠졌는지 자동으로 보여 줌
+function readyRender() {
+  if (typeof ARCH !== 'object' || !ARCH || !$('ready')) return;
+  const ym = ymNow(), m = curMonth(), add = (y, k) => { const [a, b] = y.split('-').map(Number), t = a * 12 + b - 1 + k; return `${Math.floor(t / 12)}-${String(t % 12 + 1).padStart(2, '0')}`; };
+  const pym = add(ym, -1), nym = add(ym, 1), L = y => Number(y.slice(5)) + '월';
+  const now = new Date(), curYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const items = [];
+  const it = (st, what, why) => items.push({ st, what, why });
+  const req = SLOTS.filter(s => !s.optional);
+  const miss = req.filter(s => !FILLED[s.id] && !archRec(s, ym));
+  it(miss.length ? 'no' : 'ok', `필수 5칸 (${L(ym)})`, miss.length ? `빠짐: ${miss.map(s => s.label).join(', ')} — 칸이나 보관함에 넣어 주세요` : '모두 있음(칸 파일 또는 보관함)');
+  it(ARCH[`led:${pym}`] || FILLED.ledPrev ? 'ok' : 'no', `${L(pym)} 단가대장`, '전월 생산분 출하 원가 — 없으면 그 원가는 빈칸');
+  const prevLots = Object.keys(ARCH).filter(k => k.startsWith('lots:') && k.slice(5) < ym).map(k => k.slice(5)).sort().reverse();
+  it(prevLots.length ? 'ok' : 'no', '이전 달 로트목록', prevLots.length ? `보관함에 ${prevLots.slice(0, 4).map(L).join('·')} — 전월 생산 출하의 생산월 확인` : '없으면 전월 생산 출하의 생산월을 몰라 원가 빈칸');
+  it(ARCH[`ship:${pym}`] ? 'ok' : 'no', `${L(pym)} 출하대장`, `${L(ym)} 로트 중 ${L(pym)}에 먼저 출하된 것을 재고에서 빼고, 이월 수량 계산`);
+  if (nym > curYm) it('na', `${L(nym)} 로트목록`, `${L(nym)}이 아직 끝나지 않아 없음 — ${L(nym)} 자료를 넣으면 ${L(ym)} 선출하가 다시 계산됩니다`);
+  else it(ARCH[`lots:${nym}`] ? 'ok' : 'no', `${L(nym)} 로트목록`, `${L(nym)} 생산분을 ${L(ym)}에 먼저 출하(선출하)한 매출을 평택으로 — 없으면 화성으로 잡힐 수 있음`);
+  it(FILLED.fco || ARCH[`fco:${ym}`] ? 'ok' : 'na', `${L(ym)} FCO`, '평택 미출고 기말 제품재고액 — 없으면 로트 잔량 재료비로만');
+  const lv = window.__latest;
+  it(lv ? (lv.same ? 'ok' : 'no') : 'na', '계산기 버전', lv ? (lv.same ? `최신(${Report.VERSION})` : `지금 ${Report.VERSION} · 최신 ${lv.version} — 새로 고침 필요`) : `${Report.VERSION} (최신 여부는 인터넷 연결 후 확인)`);
+  const bad = items.filter(x => x.st === 'no').length;
+  $('readySum').innerHTML = `${L(ym)} 자료 점검 — ${bad ? `<span class="no">확인할 것 ${bad}개</span>` : '<span class="ok">모두 준비됨</span>'}`;
+  $('readyBody').innerHTML = '<ul>' + items.map(x => `<li><span class="i ${x.st}">${x.st === 'ok' ? '✓' : x.st === 'no' ? '✗' : '–'}</span><b>${esc(x.what)}</b><span class="w">${esc(x.why)}</span></li>`).join('') + '</ul>';
 }
 const XLSX_OK = () => typeof XLSX !== 'undefined';
 $('slots').onclick = e => {
@@ -888,7 +922,7 @@ async function archDelete(key) {
   catch (e) { showError('보관함에서 빼지 못했습니다', e.message || String(e)); }
 }
 function archRender() {
-  archSlotsRender();
+  archSlotsRender(); readyRender();
   // 계산 전이면 보관함 변화를 칸에 바로 반영 (다 모이면 계산)
   if (!RES || archSig(ymNow()) !== ARCH_SIG) refresh();
   histRender();
@@ -1164,6 +1198,7 @@ archLoad();
       const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
       if (!r.ok) return;
       const v = await r.json();
+      window.__latest = { version: v.version || '', same: v.build === mine }; readyRender();
       if (v.build && v.build !== mine && v.build !== dismissed) {
         $('updVer').textContent = v.version ? `(${v.version}${v.date ? ' · ' + v.date : ''})` : '';
         $('upd').hidden = false; shown = true; window.__newBuild = v.build;
