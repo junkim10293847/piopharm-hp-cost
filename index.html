@@ -737,6 +737,11 @@ function readyRender() {
   const req = SLOTS.filter(s => !s.optional);
   const miss = req.filter(s => !FILLED[s.id] && !archRec(s, ym));
   it(miss.length ? 'no' : 'ok', `필수 5칸 (${L(ym)})`, miss.length ? `빠짐: ${miss.map(s => s.label).join(', ')} — 칸이나 보관함에 넣어 주세요` : '모두 있음(칸 파일 또는 보관함)');
+  // 출하대장에 평택 현장(비오팜2공장)·평택 출하번호(10-30) 출하가 있는지 — ERP에서 본사만 뽑으면 평택 출하가 통째로 빠짐
+  { const sr = ARCH[`ship:${ym}`];
+    if (sr && !FILLED.ship) { const site = (RULES.ptSite || '비오팜2공장'), wo = (RULES.ptWo || '10-30');
+      const n = sr.rows.slice(1).filter(x => String(x[14] || '').trim() === site || String(x[1] || '').startsWith(wo)).length;
+      it(n ? 'ok' : 'no', `${L(ym)} 출하대장 평택 출하`, n ? `${site}·${wo} 출하 ${n}건 있음` : `${site}(출하번호 ${wo}-…) 출하가 하나도 없음 — 본사 출하만 뽑은 파일일 수 있어 평택 매출이 빠집니다. ${site} 포함으로 다시 받아 넣어 주세요`); } }
   it(ARCH[`led:${pym}`] || FILLED.ledPrev ? 'ok' : 'no', `${L(pym)} 단가대장`, '전월 생산분 출하 원가 — 없으면 그 원가는 빈칸');
   const prevLots = Object.keys(ARCH).filter(k => k.startsWith('lots:') && k.slice(5) < ym).map(k => k.slice(5)).sort().reverse();
   it(prevLots.length ? 'ok' : 'no', '이전 달 로트목록', prevLots.length ? `보관함에 ${prevLots.slice(0, 4).map(L).join('·')} — 전월 생산 출하의 생산월 확인` : '없으면 전월 생산 출하의 생산월을 몰라 원가 빈칸');
