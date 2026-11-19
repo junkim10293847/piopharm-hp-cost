@@ -238,6 +238,22 @@ tr.click:hover td{background:var(--bg)}
 .chip2 .del:hover{color:var(--warn)}
 /* 오류 창 */
 dialog.err{border:1px solid var(--warn);border-radius:10px;padding:0;max-width:min(460px,calc(100vw - 32px));background:var(--surface);color:var(--fg)}
+dialog.view{border:1px solid var(--line);border-radius:10px;padding:0;width:min(1180px,calc(100vw - 24px));max-height:88vh;background:var(--surface);color:var(--fg)}
+dialog.view::backdrop{background:rgba(0,0,0,.35)}
+dialog.view .vh{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+dialog.view .vh h2{margin:0;font-size:15px}
+dialog.view .vh .meta{font-size:12px}
+dialog.view .vh input{margin-left:auto;width:220px}
+dialog.view .vb{overflow:auto;max-height:calc(88vh - 110px)}
+dialog.view table{border-collapse:collapse;font-size:12px;white-space:nowrap}
+dialog.view th,dialog.view td{border-bottom:1px solid var(--line);padding:4px 8px;text-align:left}
+dialog.view thead th{position:sticky;top:0;background:var(--bg);z-index:1}
+dialog.view td.n{text-align:right;font-variant-numeric:tabular-nums}
+dialog.view td.r,dialog.view th.r{color:var(--muted);text-align:right;position:sticky;left:0;background:var(--surface)}
+dialog.view .vf{display:flex;gap:8px;align-items:center;padding:10px 16px;border-top:1px solid var(--line);font-size:12px}
+dialog.view .vf .btn{margin-left:auto}
+.slot-file.view{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;background:none;border:0;padding:0;color:inherit;font:inherit;text-align:left}
+.slot-file.view:hover{color:var(--pt)}
 dialog.err::backdrop{background:rgba(0,0,0,.35)}
 dialog.err h2{margin:0;padding:14px 18px;font-size:15px;color:var(--warn);border-bottom:1px solid var(--line)}
 dialog.err p{margin:0;padding:14px 18px;font-size:13.5px;white-space:pre-wrap;word-break:break-word}
@@ -251,6 +267,11 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
   <div><b>새 버전이 있습니다</b> <span id="updVer"></span><div class="s">새로 고침하면 반영됩니다. 보관함·계산 규칙·검수 표시는 그대로 남고, 계산 칸에 넣은 파일만 다시 넣으면 됩니다.</div></div>
   <button class="btn" type="button" id="updGo">새로 고침</button><button class="x" type="button" id="updX" aria-label="닫기">×</button>
 </div>
+<dialog class="view" id="viewDlg" aria-labelledby="viewTitle">
+  <div class="vh"><h2 id="viewTitle"></h2><span class="meta" id="viewMeta"></span><input type="search" id="viewQ" placeholder="찾기 (예: 제품코드·로트)" aria-label="자료 안에서 찾기"></div>
+  <div class="vb" id="viewBody"></div>
+  <div class="vf"><span class="meta" id="viewCnt"></span><button class="btn" type="button" id="viewClose">닫기</button></div>
+</dialog>
 <dialog class="err" id="errDlg" aria-labelledby="errTitle">
   <h2 id="errTitle">오류</h2>
   <p id="errMsg"></p>
@@ -657,11 +678,11 @@ function renderSlots() {
     const title = (slot.optional ? '' : '<span class="req-b">필수</span>') + slot.label + (sm ? ` · ${sm}월` : '') + (slot.optional ? ' <span class="no">(선택)</span>' : '');
     let body;
     const ar = !f ? archRec(slot, ymNow()) : null;
-    if (ar) body = `<div class="slot-act"><span class="slot-file" title="${esc(ar.src)}"><span class="tagA">보관함</span>${ar.ym ? Number(ar.ym.slice(5)) + '월 · ' : '최신본 · '}${won(ar.n)}행</span><button class="btn" type="button" data-pick="${slot.id}">파일로 바꾸기</button></div>`;
+    if (ar) body = `<div class="slot-act"><button type="button" class="slot-file view" data-view="${slot.id}" title="눌러서 자료 보기 · ${esc(ar.src)}"><span class="tagA">보관함</span>${ar.ym ? Number(ar.ym.slice(5)) + '월 · ' : '최신본 · '}${won(ar.n)}행</button><button class="btn" type="button" data-pick="${slot.id}">파일로 바꾸기</button></div>`;
     else if (!f) body = `<div class="slot-act"><button class="btn" type="button" data-pick="${slot.id}">파일 선택</button><span class="slot-hint">또는 여기로 끌어다 놓기</span></div>`;
     else {
       const names = f.wb.SheetNames;
-      body = `<div class="slot-act"><span class="slot-file" title="${esc(f.file)}">${esc(f.file)}</span><button class="rm" type="button" data-rm="${slot.id}" aria-label="${esc(slot.label)} 비우기">×</button></div>`
+      body = `<div class="slot-act"><button type="button" class="slot-file view" data-view="${slot.id}" title="눌러서 자료 보기 · ${esc(f.file)}">${esc(f.file)}</button><button class="rm" type="button" data-rm="${slot.id}" aria-label="${esc(slot.label)} 비우기">×</button></div>`
         + (names.length > 1 ? `<select data-sheet="${slot.id}" aria-label="쓸 시트">${names.map(n => `<option value="${esc(n)}"${n === f.sheet ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>` : '')
         + (w ? `<div class="slot-warn">이 칸에 맞는 열이 없습니다: ${esc(w.missing.join(', '))}</div>` : '');
     }
@@ -676,7 +697,44 @@ $('slots').onclick = e => {
   const t = e.target;
   if (t.dataset.pick) { TARGET = t.dataset.pick; $('file').click(); }
   if (t.dataset.rm) { delete FILLED[t.dataset.rm]; refresh(); }
+  const v = t.closest && t.closest('[data-view]'); if (v) viewSlot(v.dataset.view);
 };
+// ---------- 자료 보기 (칸에 넣은 파일 · 보관함 자료) ----------
+let VIEW = null;
+const cellTxt = v => v == null ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : typeof v === 'number' ? (Number.isInteger(v) ? v.toLocaleString('ko-KR') : v.toLocaleString('ko-KR', { maximumFractionDigits: 4 })) : String(v);
+function viewOpen(title, meta, rows, hdr) {
+  // 빈 줄·빈 열 정리, 머리글 줄 찾기
+  rows = rows.filter(r => r && r.some(v => v != null && v !== ''));
+  let hi = hdr != null ? hdr : 0;
+  if (hdr == null) { let best = -1; for (let i = 0; i < Math.min(rows.length, 15); i++) { const c = rows[i].filter(v => typeof v === 'string' && v.trim()).length; if (c > best) { best = c; hi = i; } } }
+  const w = Math.max(0, ...rows.map(r => { let k = r.length; while (k && (r[k - 1] == null || r[k - 1] === '')) k--; return k; }));
+  VIEW = { head: rows.slice(0, hi + 1), body: rows.slice(hi + 1), w };
+  $('viewTitle').textContent = title; $('viewMeta').textContent = meta; $('viewQ').value = '';
+  viewDraw(); $('viewDlg').showModal(); $('viewQ').focus();
+}
+function viewDraw() {
+  const q = $('viewQ').value.trim().toLowerCase(), { head, body, w } = VIEW, LIM = 500;
+  const hit = q ? body.filter(r => r.some(v => cellTxt(v).toLowerCase().includes(q))) : body;
+  const row = (r, i, th) => `<tr>${th ? '<th class="r">#</th>' : `<td class="r">${i + 1}</td>`}${Array.from({ length: w }, (_, c) => { const v = r[c]; return th ? `<th>${esc(cellTxt(v))}</th>` : `<td${typeof v === 'number' ? ' class="n"' : ''}>${esc(cellTxt(v))}</td>`; }).join('')}</tr>`;
+  $('viewBody').innerHTML = `<table><thead>${head.slice(-1).map(r => row(r, 0, true)).join('')}</thead><tbody>${hit.slice(0, LIM).map((r, i) => row(r, body.indexOf(r), false)).join('')}</tbody></table>`;
+  $('viewCnt').textContent = `${won(body.length)}행${q ? ` 중 ${won(hit.length)}행 찾음` : ''}${hit.length > LIM ? ` · 앞 ${LIM}행만 표시 (찾기로 좁혀 보세요)` : ''}`;
+}
+$('viewQ').oninput = () => VIEW && viewDraw();
+$('viewClose').onclick = () => $('viewDlg').close();
+function viewSlot(id) {
+  const slot = SLOTS.find(s => s.id === id), f = FILLED[id];
+  if (f) {
+    const sh = sheetsOf(XLSX, f.wb).find(s => s.name === f.sheet) || sheetsOf(XLSX, f.wb).find(s => s.name.trim() === String(f.sheet).trim());
+    if (!sh) { showError('자료를 열 수 없습니다', `시트 「${f.sheet}」를 찾지 못했습니다.`); return; }
+    viewOpen(`${SLOT_NAME[id]} · 칸에 넣은 파일`, `${f.file} · 시트 「${f.sheet}」`, sh.rows, null);
+    return;
+  }
+  const r = archRec(slot, ymNow()); if (r) viewArch(r.key);
+}
+function viewArch(key) {
+  const r = ARCH[key]; if (!r) return;
+  viewOpen(`${kindName(r.kind)} · ${r.ym ? Archive.label(r.ym) : '최신본'} · 보관함`, `${r.src} · ${(r.savedAt || '').slice(0, 16).replace('T', ' ')} 저장${r.edits && r.edits.length ? ` · 수정 ${r.edits.length}번` : ''}`, r.rows, 0);
+}
 $('slots').onchange = e => { const id = e.target.dataset.sheet; if (id) { FILLED[id].sheet = e.target.value; refresh(); slotToArch([id]); } };
 const slotOf = e => e.target.closest && e.target.closest('.slot');
 ['dragenter', 'dragover'].forEach(t => $('slots').addEventListener(t, e => { const el = slotOf(e); if (el) { e.preventDefault(); el.classList.add('over'); } }));
@@ -1024,7 +1082,7 @@ function archEditOpen(key) {
   let h = `<h5>${kindName(r.kind)} · ${r.ym ? Archive.label(r.ym) : '최신본'} <span class="meta">${won(r.n)}행 · ${esc(r.src)} · ${(r.savedAt || '').slice(0, 16).replace('T', ' ')} 저장</span></h5>
     <div class="row">${r.ym ? `<select id="edYm" aria-label="옮길 월">${yms.map(y => `<option value="${y}"${y === r.ym ? ' selected' : ''}>${Archive.label(y)}</option>`).join('')}</select>
     <input type="text" id="edWhy" placeholder="바꾸는 이유(선택)" style="width:200px"><button class="btn sm" type="button" id="edMove">이 월로 옮기기</button>` : ''}
-    <button class="btn sm" type="button" id="edDel">이 자료 지우기</button><button class="btn sm" type="button" id="edClose" style="margin-left:auto">닫기</button></div>`;
+    <button class="btn sm" type="button" id="edView">자료 보기</button><button class="btn sm" type="button" id="edDel">이 자료 지우기</button><button class="btn sm" type="button" id="edClose" style="margin-left:auto">닫기</button></div>`;
   if (r.kind === 'lots') {
     const ks = Object.keys(Engine.RATIO);
     h += `<div class="scroll" style="max-height:360px"><table><thead><tr><th class="t">제품코드</th><th class="t">로트번호</th><th class="t">제품명</th><th class="t">생산구분</th><th>완료수량</th><th class="t">생산귀속</th><th class="t">메모</th><th>빼기</th></tr></thead><tbody>` +
@@ -1040,6 +1098,7 @@ $('archEdit').onclick = async e => {
   const r = ARCH[EDIT]; if (!r) return;
   try {
     if (e.target.id === 'edClose') { $('archEdit').hidden = true; EDIT = null; return; }
+    if (e.target.id === 'edView') { viewArch(EDIT); return; }
     if (e.target.id === 'edDel') {
       if (!confirm(`${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ''} 자료를 보관함에서 지울까요?`)) return;
       await IDB.del([r.key]); delete ARCH[r.key]; $('archEdit').hidden = true; archRender(); setStatus('보관함에서 지웠습니다.'); return;
