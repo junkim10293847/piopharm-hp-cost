@@ -210,6 +210,17 @@ const Archive = (() => {
       // 가공 파일의 출하대장·단가대장·발주·작업지시: 미가공 원본이 있으면 그대로 두고, 가공본끼리는 행이 많은(최신) 쪽
       if (!oldRec.processed || ((newRec.kind === 'order' || newRec.kind === 'wo') && newRec.n < oldRec.n)) return { ...oldRec, keptOld: true };
     }
+    // 로트목록은 사람이 확인해 고친 가공본이 우선 — 같은 달 가공본이 있으면 미가공 로트목록으로 바꾸지 않음
+    if (oldRec && newRec.kind === 'lots' && oldRec.processed && !newRec.processed) {
+      // 가공본에 없는 로트만 미가공본에서 더함 (O·0 오타, -1/-2 붙인 것은 같은 로트로 봄)
+      const nk = r => String(r[0]).replace(/O/g, '0') + '|' + String(r[1]).replace(/-\d{1,2}$/, '');
+      const have = new Set(oldRec.rows.slice(1).map(nk));
+      const haveLot = new Set(oldRec.rows.slice(1).map(r => String(r[1]).replace(/-\d{1,2}$/, '')));
+      const add = newRec.rows.slice(1).filter(r => !have.has(nk(r)) && !(/^10[A-Z]/.test(String(r[0])) && haveLot.has(String(r[1]).replace(/-\d{1,2}$/, ''))));
+      if (!add.length) return { ...oldRec, keptOld: true };
+      const rows = [...oldRec.rows.slice(1), ...add];
+      return { ...oldRec, rows: [LOT_HDR, ...rows], n: rows.length, added: add.map(r => r[1]), src: `${oldRec.src} + ${newRec.src}`, savedAt: new Date().toISOString() };
+    }
     if (!oldRec || newRec.kind !== 'lots') return { ...newRec, savedAt: new Date().toISOString() };
     const ok = r => ['평택', '화성포장', '멀티연질', '정제화성', '화성'].includes(T(r[4])) && r[5] != null;
     const map = new Map(oldRec.rows.slice(1).map(r => [r[0] + '|' + r[1], r]));
@@ -251,9 +262,10 @@ const Archive = (() => {
     const fco = all[`fco:${ym}`]; if (fco) sheets.push(sheet(`${m}월 FCO`, fco.rows));
     // 생산월 기록: 이전 달 로트목록의 제품코드+로트 → 생산귀속 월
     const lotMonth = new Map(), lotLine = new Map(), conflict = [];
+    const fixC = c => (/^10[A-Z]/.test(T(c)) ? '1O' + T(c).slice(2) : T(c));   // 이력 계산용: 10S… → 1OS… (O를 0으로 입력)
     Object.values(all).filter(r => r.kind === 'lots' && within(r.ym) && r.ym !== ym).sort((a, b) => a.ym < b.ym ? -1 : 1).forEach(r => {
       const mm = Number(r.ym.slice(5));
-      r.rows.slice(1).forEach(x => { if (T(x[7]) === '전월') return; const k = x[0] + '|' + x[1]; if (T(x[4])) lotLine.set(k, T(x[4])); if (lotMonth.has(k) && lotMonth.get(k) !== mm) conflict.push(k); else lotMonth.set(k, mm); });
+      r.rows.slice(1).forEach(x => { if (T(x[7]) === '전월') return; const k = fixC(x[0]) + '|' + x[1]; if (T(x[4])) lotLine.set(k, T(x[4])); if (lotMonth.has(k) && lotMonth.get(k) !== mm) conflict.push(k); else lotMonth.set(k, mm); });
     });
     // 이월: 이전 달 로트목록 완료수량 − 생산월부터 직전 달까지 출하량 (출하대장 기준)
     const add = (a, k) => { const [yy, mm] = a.split('-').map(Number), t = yy * 12 + mm - 1 + k; return `${Math.floor(t / 12)}-${pad(t % 12 + 1)}`; };
@@ -268,11 +280,16 @@ const Archive = (() => {
       const months = []; for (let y = r.ym; y <= pym; y = add(y, 1)) months.push(y);
       const gaps = months.filter(y => !shipBy.has(y)).map(y => Number(y.slice(5)) + '월');
       if (shipBy.has(add(r.ym, -1))) months.unshift(add(r.ym, -1));   // 생산 전달에 먼저 출하(선출하)한 것도 뺌
+      const base = l => T(l).replace(/-\d{1,2}$/, '');
+      const goodLots = new Set(r.rows.slice(1).filter(x => !/^10[A-Z]/.test(T(x[0]))).map(x => base(x[1])));
+      const seenK = new Set();
       r.rows.slice(1).forEach(x => {
         if (T(x[7]) === '전월') return;
-        const k = T(x[0]) + '|' + T(x[1]), made = Number(x[5]) || 0;
+        if (/^10[A-Z]/.test(T(x[0])) && goodLots.has(base(x[1]))) return;     // 오타 코드 행인데 같은 로트의 확인된 행이 있음
+        const k = fixC(x[0]) + '|' + T(x[1]), made = Number(x[5]) || 0;
+        if (seenK.has(k)) return; seenK.add(k);
         const shipped = months.reduce((a, y) => { const m2 = shipBy.get(y); return a + (m2 ? (m2.get(k) || 0) + (m2.get('~' + k) || 0) : 0); }, 0);
-        if (made - shipped > 0) carryRows.push({ 생산월: r.ym, 제품코드: T(x[0]), 로트번호: T(x[1]), 제품명: T(x[2]), 고객사: T(x[3]), 생산구분: T(x[4]), 완료수량: made, 이전출하: shipped, 이월수량: made - shipped, 빈달: gaps });
+        if (made - shipped > 0) carryRows.push({ 생산월: r.ym, 제품코드: fixC(x[0]), 로트번호: T(x[1]), 제품명: T(x[2]), 고객사: T(x[3]), 생산구분: T(x[4]), 완료수량: made, 이전출하: shipped, 이월수량: made - shipped, 빈달: gaps });
       });
     });
     const carry = carryRows.length ? { asOf: pym, rows: carryRows } : null;

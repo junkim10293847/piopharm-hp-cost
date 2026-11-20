@@ -968,8 +968,8 @@ async function archSave(recs) {
     // 훨씬 작은 자료가 큰 자료를 덮지 않게 (예: 작업용 시트의 일부 표)
     if (old && r.kind !== 'lots' && !r.processed && r.n < old.n * 0.2) { log.push({ ...r, guard: `기존 ${won(old.n)}행보다 훨씬 작아(${won(r.n)}행) 바꾸지 않음 — 바꾸려면 기존 자료를 지우고 넣으세요` }); continue; }
     const m = Archive.merge(old, r);
-    if (m.keptOld) { log.push({ ...r, guard: r.kind === 'order' || r.kind === 'wo' ? `기존 ${won(old.n)}행이 더 많아 그대로 둠` : '미가공 원본이 이미 있어 그대로 둠(가공본으로 바꾸지 않음)' }); continue; }
-    next[r.key] = m; log.push({ ...m, n: r.n, src: r.src, kept: m.kept });
+    if (m.keptOld) { log.push({ ...r, guard: r.kind === 'order' || r.kind === 'wo' ? `기존 ${won(old.n)}행이 더 많아 그대로 둠` : r.kind === 'lots' ? '사람이 확인한 가공본 로트목록이 있어 그대로 둠' : '미가공 원본이 이미 있어 그대로 둠(가공본으로 바꾸지 않음)' }); continue; }
+    next[r.key] = m; log.push({ ...m, n: m.added ? m.added.length : r.n, src: r.src, kept: m.kept, ...(m.added ? { guard: null, note: `가공본 로트목록에 없는 ${m.added.length}개만 더함(${m.added.slice(0, 6).join(', ')}${m.added.length > 6 ? ' 외' : ''})` } : {}) });
   }
   await IDB.put(Object.values(next));
   Object.assign(ARCH, next);
@@ -982,7 +982,7 @@ function archLog(results) {
   const lines = [];
   results.forEach(({ file, res, saved, err }) => {
     if (err) { lines.push(`<div class="w">✕ ${esc(file)}: ${esc(err)}</div>`); return; }
-    saved.forEach(r => lines.push(r.guard ? `<div class="w">! ${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ''}: ${esc(r.guard)} <span class="meta">← ${esc(r.src)}</span></div>` : `<div class="k">✓ ${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ''} ${won(r.n)}행 저장 <span class="meta">← ${esc(r.src)}</span>${r.kept && r.kept.length ? ` <span class="w">(기존 행 유지: ${esc(r.kept.join(', '))})</span>` : ''}</div>`));
+    saved.forEach(r => lines.push(r.guard ? `<div class="w">! ${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ''}: ${esc(r.guard)} <span class="meta">← ${esc(r.src)}</span></div>` : `<div class="k">✓ ${kindName(r.kind)}${r.ym ? ' · ' + Archive.label(r.ym) : ''} ${won(r.n)}행 저장 <span class="meta">← ${esc(r.src)}</span>${r.kept && r.kept.length ? ` <span class="w">(기존 행 유지: ${esc(r.kept.join(', '))})</span>` : ''}${r.note ? ` <span class="w">(${esc(r.note)})</span>` : ''}</div>`));
     res.skipped.forEach(x => lines.push(`<div class="meta">– ${esc(x.src)}: ${esc(x.reason)}</div>`));
     res.notes.forEach(x => lines.push(`<div class="w">! ${esc(x)}</div>`));
   });
