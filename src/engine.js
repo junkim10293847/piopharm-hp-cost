@@ -199,6 +199,22 @@ const Engine = (() => {
   // ---------- 평택 로트목록 로트 ----------
   function calcLots(lots, src, opts) {
     const { Od, OdAll, Wo, Sh, led, prodMonth } = src;
+    // 같은 제품을 이번 달에 화성에서도 만든 로트(평택 로트목록에 없고 작업지시 지시일자가 이번 달) — 단가대장 투입액은 둘이 함께 쓴 것이므로 나눌 때 분모에 넣음
+    const mm = String(opts.month).padStart(2, '0');
+    const baseLot = x => x.replace(/-\d{1,2}$/, '');
+    const listed = new Set(lots.map(l => l.제품코드 + '|' + baseLot(l.로트번호)));
+    const otherLots = new Map();   // 제품코드 → [{로트, 수량}]
+    const seenWo = new Set();
+    Wo.forEach(w => {
+      const c = T(w['지시제품']), lot = T(w['제품로트번호']), d = T(w['지시일자']);
+      if (!c || !lot || !new RegExp('^\\d{4}[.-]' + mm + '[.-]').test(d)) return;
+      const k = c + '|' + baseLot(lot);
+      if (listed.has(k) || seenWo.has(k)) return; seenWo.add(k);
+      const shipped = Sh.filter(x => x.key === c + '|' + lot).reduce((a, x) => a + x.qty, 0);
+      const q = shipped || Z(N(w['지시량'])) || 0;
+      if (!q) return;
+      if (!otherLots.has(c)) otherLots.set(c, []); otherLots.get(c).push({ 로트: lot, 수량: q });
+    });
     // 출하 기준: 로트목록 행을 출하대장 로트에 맞춤.
     // 로트번호를 '-1', '-2'처럼 나눠 적은 행은 출하대장에 그 이름이 없고 원래 로트가 있으면 원래 로트로 맞춤.
     const shipKeys = new Set(Sh.map(x => x.key));
@@ -244,8 +260,12 @@ const Engine = (() => {
       if (r.cur) {
         // 당월 생산: 같은 제품의 당월 로트끼리 생산수량 비율
         const grp = base.filter(x => x.제품코드 === r.제품코드 && x.cur);
-        const tot = grp.reduce((a, x) => a + x.생산수량, 0);
+        const own = grp.reduce((a, x) => a + x.생산수량, 0);
+        const oth = otherLots.get(r.제품코드) || [];
+        const othQ = oth.reduce((a, x) => a + x.수량, 0);
+        const tot = own + othQ;
         o.원가월 = opts.month; o.원가방식 = '당월 생산'; o.제품생산합 = tot;
+        if (othQ) o.flags.push(`같은 제품을 이번 달 화성에서도 생산(${oth.length}로트·${othQ.toLocaleString()}: ${oth.slice(0, 3).map(x => x.로트).join(', ')}${oth.length > 3 ? ' 외' : ''}) → 단가대장 투입액을 평택 ${own.toLocaleString()} : 화성 ${othQ.toLocaleString()}로 나눔`);
         o.개당원가 = tot ? r.cur.제조금액 / tot : 0;
         o.Full원가 = r.shipQty * o.개당원가;
         o.Full원료 = r.cur.제조금액 ? o.Full원가 * r.cur.원료 / r.cur.제조금액 : 0;
