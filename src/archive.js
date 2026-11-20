@@ -221,6 +221,18 @@ const Archive = (() => {
       const rows = [...oldRec.rows.slice(1), ...add];
       return { ...oldRec, rows: [LOT_HDR, ...rows], n: rows.length, added: add.map(r => r[1]), src: `${oldRec.src} + ${newRec.src}`, savedAt: new Date().toISOString() };
     }
+    // 미가공 로트목록이 있는 달에 가공본(사람이 확인한 것)을 넣으면: 같은 로트(O·0 오타·-1/-2 무시)는 가공본 행으로 바꾸고, 가공본에 없는 미가공 행은 남김
+    if (oldRec && newRec.kind === 'lots' && newRec.processed && !oldRec.processed) {
+      const nk = r => String(r[0]).replace(/O/g, '0') + '|' + String(r[1]).replace(/-\d{1,2}$/, '');
+      const nl = r => String(r[1]).replace(/-\d{1,2}$/, '');
+      const nm = r => String(r[2] || '').replace(/\s/g, '');
+      const have = new Set(newRec.rows.slice(1).map(nk)), haveLot = new Set(newRec.rows.slice(1).map(nl));
+      const haveLotName = new Set(newRec.rows.slice(1).map(r => nl(r) + '#' + nm(r)));
+      // 같은 로트·같은 제품명인데 제품코드만 다르면(가공본에서 코드를 고친 것) 미가공 행은 버림
+      const keep = oldRec.rows.slice(1).filter(r => !have.has(nk(r)) && !haveLotName.has(nl(r) + '#' + nm(r)) && !(/^10[A-Z]/.test(String(r[0])) && haveLot.has(nl(r))));
+      const rows = [...newRec.rows.slice(1), ...keep];
+      return { ...newRec, rows: [LOT_HDR, ...rows], n: rows.length, processed: true, replaced: oldRec.rows.length - 1 - keep.length, src: `${newRec.src} + ${oldRec.src}`, savedAt: new Date().toISOString() };
+    }
     if (!oldRec || newRec.kind !== 'lots') return { ...newRec, savedAt: new Date().toISOString() };
     const ok = r => ['평택', '화성포장', '멀티연질', '정제화성', '화성'].includes(T(r[4])) && r[5] != null;
     const map = new Map(oldRec.rows.slice(1).map(r => [r[0] + '|' + r[1], r]));
