@@ -377,7 +377,7 @@ dialog.err .act{display:flex;justify-content:flex-end;padding:0 18px 14px}
   <div id="result" hidden>
     <section class="split" aria-label="매출 구분">
       <div class="split-top">
-        <div class="total"><div class="lbl" id="tLbl">당월 출하 매출</div><div class="v num" id="tVal"></div></div>
+        <div class="total"><div class="lbl" id="tLbl">당월 출하 매출</div><div class="v num" id="tVal"></div><div class="s num" id="tCls" style="font-size:12px;color:var(--muted);margin-top:2px"></div></div>
         <div class="legend">
           <div class="lg"><span class="lbl"><i class="dot" style="background:var(--pt)"></i>평택</span><span class="v num" id="pVal"></span><span class="s num" id="pSub"></span></div>
           <div class="lg"><span class="lbl"><i class="dot" style="background:var(--hs)"></i>화성</span><span class="v num" id="hVal"></span><span class="s num" id="hSub"></span></div>
@@ -746,7 +746,7 @@ function readyRender() {
   const prevLots = Object.keys(ARCH).filter(k => k.startsWith('lots:') && k.slice(5) < ym).map(k => k.slice(5)).sort().reverse();
   it(prevLots.length ? 'ok' : 'no', '이전 달 로트목록', prevLots.length ? `보관함에 ${prevLots.slice(0, 4).map(L).join('·')} — 전월 생산 출하의 생산월 확인` : '없으면 전월 생산 출하의 생산월을 몰라 원가 빈칸');
   it(ARCH[`ship:${pym}`] ? 'ok' : 'no', `${L(pym)} 출하대장`, `${L(ym)} 로트 중 ${L(pym)}에 먼저 출하된 것을 재고에서 빼고, 이월 수량 계산`);
-  if (nym > curYm) it('na', `${L(nym)} 로트목록`, `${L(nym)}이 아직 끝나지 않아 없음 — ${L(nym)} 자료를 넣으면 ${L(ym)} 선출하가 다시 계산됩니다`);
+  if (nym >= curYm) it('na', `${L(nym)} 로트목록`, `${L(nym)}이 아직 끝나지 않아 없음 — ${L(nym)} 자료를 넣으면 ${L(ym)} 선출하가 다시 계산됩니다`);
   else it(ARCH[`lots:${nym}`] ? 'ok' : 'no', `${L(nym)} 로트목록`, `${L(nym)} 생산분을 ${L(ym)}에 먼저 출하(선출하)한 매출을 평택으로 — 없으면 화성으로 잡힐 수 있음`);
   it(FILLED.fco || ARCH[`fco:${ym}`] ? 'ok' : 'na', `${L(ym)} FCO`, '평택 미출고 기말 제품재고액 — 없으면 로트 잔량 재료비로만');
   // v2.9~v3.0 사이에 가공 파일을 칸에 넣었으면 보관함에 가공 자료가 들어갔을 수 있음 → 찾아서 빼기
@@ -1286,6 +1286,7 @@ function render() {
   $('empty').hidden = true; $('result').hidden = false;
   $('tLbl').textContent = `${R.opts.month}월 출하 매출 (출하대장 공급가액)`;
   $('tVal').textContent = won(R.totalShip) + '원';
+  $('tCls').textContent = R.byClass ? `제품 ${won(R.byClass.제품)} · 상품 ${won(R.byClass.상품)} · 원료·기타 ${won(R.byClass['원료·기타'])} (손익계산서 대조: 제품 ↔ 제품+임가공매출, 상품 ↔ 상품매출, 원료 ↔ 기타매출)` : '';
   $('pVal').textContent = eok(S.P.매출); $('pSub').textContent = pct(div(S.P.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.P.원료 + S.P.자재, S.P.매출));
   $('hVal').textContent = eok(S.H.매출); $('hSub').textContent = pct(div(S.H.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.H.원료 + S.H.자재, S.H.매출));
   const pts = ptStock();

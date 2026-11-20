@@ -525,6 +525,10 @@ const Engine = (() => {
     const hw = calcHwaseong(taken, src, opts);
     const stock = calcStock(lots, src, opts);
     const totalShip = src.Sh.reduce((a, r) => a + r.amt, 0);
+    // 손익계산서 대조용: 품목코드 첫 자리로 제품(1)·상품(2)·원료 등(3~9, 기타매출 쪽)
+    const cls = c => (c[0] === '1' ? '제품' : c[0] === '2' ? '상품' : '원료·기타');
+    const byClass = { 제품: 0, 상품: 0, '원료·기타': 0 };
+    src.Sh.forEach(r => { byClass[cls(T(r['품목코드']))] += r.amt; });
     const s = (arr, k) => arr.reduce((a, x) => a + Z(x[k]), 0);
     const P당월 = { 매출: s(lots, '매출'), 원료: s(lots, '원료'), 자재: s(lots, '자재') };
     const P전월 = { 매출: s(prev, '매출'), 원료: s(prev, '원료'), 자재: s(prev, '자재') };
@@ -534,7 +538,7 @@ const Engine = (() => {
     const Hu = { 매출: s(hw, '매출'), 원료: s(hw, '원료'), 자재: s(hw, '자재'), 미확인매출: hw.filter(g => g.원가 == null).reduce((a, g) => a + g.매출, 0) };
     const H = { 매출: Hl.매출 + Hu.매출, 원료: Hl.원료 + Hu.원료, 자재: Hl.자재 + Hu.자재 };
     const 미확인 = { 평택: [...lots, ...prev].filter(o => o.매출 && o.원가 == null).reduce((a, o) => a + o.매출, 0) };
-    return { opts, lotSheet: lotInfo.sheet, lots, prev, hw, stock, carry, totalShip, P, P당월, P전월, H, Hl, Hu, 미확인 };
+    return { opts, lotSheet: lotInfo.sheet, lots, prev, hw, stock, carry, totalShip, byClass, P, P당월, P전월, H, Hl, Hu, 미확인 };
   }
   return { run, readLots, T, N, RATIO, DEFAULT_RULES };
 })();
