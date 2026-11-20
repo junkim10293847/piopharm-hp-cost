@@ -1286,7 +1286,7 @@ function render() {
   $('empty').hidden = true; $('result').hidden = false;
   $('tLbl').textContent = `${R.opts.month}월 출하 매출 (출하대장 공급가액)`;
   $('tVal').textContent = won(R.totalShip) + '원';
-  $('tCls').textContent = R.byClass ? `제품 ${won(R.byClass.제품)} · 상품 ${won(R.byClass.상품)} · 원료·기타 ${won(R.byClass['원료·기타'])} (손익계산서 대조: 제품 ↔ 제품+임가공매출, 상품 ↔ 상품매출, 원료 ↔ 기타매출)` : '';
+  $('tCls').textContent = R.byClass ? `제품 ${won(R.byClass.제품)} · 상품 ${won(R.byClass.상품)} · 원료·기타 ${won(R.byClass['원료·기타'])}${R.internal && R.internal.건수 ? ` · 자사(비오팜) 출하 ${won(R.internal.금액)}원 제외(타계정 대체)` : ''} (손익계산서 대조: 제품 ↔ 제품+임가공매출, 상품 ↔ 상품매출, 원료 ↔ 기타매출)` : '';
   $('pVal').textContent = eok(S.P.매출); $('pSub').textContent = pct(div(S.P.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.P.원료 + S.P.자재, S.P.매출));
   $('hVal').textContent = eok(S.H.매출); $('hSub').textContent = pct(div(S.H.매출, R.totalShip)) + ' · 재료원가율 ' + pct(div(S.H.원료 + S.H.자재, S.H.매출));
   const pts = ptStock();

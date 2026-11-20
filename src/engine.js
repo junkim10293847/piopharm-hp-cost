@@ -22,7 +22,7 @@ const Engine = (() => {
   const noSpace = s => s.replace(/\s/g, '');
   const RATIO = { '평택': 1, '화성포장': 0.8, '멀티연질': 0.6, '정제화성': 0.2, '화성': 0 };
   // 바뀔 수 있는 규칙 (화면 「계산 규칙」에서 바꿈). run()이 시작할 때 정해짐
-  const DEFAULT_RULES = { ptWo: '10-30', ptSite: '비오팜2공장', semiPrefix: '3', alcohol: ['4C00000149'], exclude: ['이월', '취소', '보류', '예정'] };
+  const DEFAULT_RULES = { ptWo: '10-30', ptSite: '비오팜2공장', semiPrefix: '3', alcohol: ['4C00000149'], exclude: ['이월', '취소', '보류', '예정'], ownCust: ['비오팜'] };
   let RU = { ...DEFAULT_RULES };
   const exRe = () => new RegExp((RU.exclude && RU.exclude.length ? RU.exclude : ['\\uFFFF']).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'));
 
@@ -139,6 +139,9 @@ const Engine = (() => {
       .filter(r => T(r['품목코드']) && T(r['품목코드']) !== '품목코드' && (T(r['출하번호']) || r['출하번호'] == null))
       .filter(r => !(r['출하번호'] == null && r['출고일자'] == null && r['매출업체'] == null)) // 합계 줄 제외
       .map(r => ({ ...r, key: T(r['품목코드']) + '|' + T(r['로트번호']), qty: Z(N(r['출하량'])), w: Z(N(r['중량'])), amt: Z(N(r['공급가액'])) }));
+    // 자사(매출업체 = 비오팜) 출하는 매출이 아니라 타계정 대체 → 매출 계산에서 뺌 (7월 29,493,524 ↔ 손익 타계정대체 29,493,770, 8월 70,024,608 ↔ 70,023,617)
+    const own = new Set((RU.ownCust || []).map(x => T(x)));
+    const Internal = Sh.filter(r => own.has(T(r['매출업체'])));
     // 단가대장: 제품(1…) 행만, 제품·월별 합계
     const Lg = new Map();
     const ledSheets = book.sheets.filter(x => noSpace(x.name).includes('단가대장'));
@@ -181,7 +184,7 @@ const Engine = (() => {
         Fco.set(p, o);
       }
     }
-    return { OdAll, Od, Wo, Sh, Lg, led, prodMonth, Fco };
+    return { OdAll, Od, Wo, Sh: Sh.filter(r => !own.has(T(r['매출업체']))), Internal, Lg, led, prodMonth, Fco };
   }
 
   const isPtWo = w => !!RU.ptWo && T(w['지시번호']).startsWith(RU.ptWo);
@@ -525,6 +528,7 @@ const Engine = (() => {
     const hw = calcHwaseong(taken, src, opts);
     const stock = calcStock(lots, src, opts);
     const totalShip = src.Sh.reduce((a, r) => a + r.amt, 0);
+    const internal = { 금액: src.Internal.reduce((a, r) => a + r.amt, 0), 건수: src.Internal.length };
     // 손익계산서 대조용: 품목코드 첫 자리로 제품(1)·상품(2)·원료 등(3~9, 기타매출 쪽)
     const cls = c => (c[0] === '1' ? '제품' : c[0] === '2' ? '상품' : '원료·기타');
     const byClass = { 제품: 0, 상품: 0, '원료·기타': 0 };
@@ -538,7 +542,7 @@ const Engine = (() => {
     const Hu = { 매출: s(hw, '매출'), 원료: s(hw, '원료'), 자재: s(hw, '자재'), 미확인매출: hw.filter(g => g.원가 == null).reduce((a, g) => a + g.매출, 0) };
     const H = { 매출: Hl.매출 + Hu.매출, 원료: Hl.원료 + Hu.원료, 자재: Hl.자재 + Hu.자재 };
     const 미확인 = { 평택: [...lots, ...prev].filter(o => o.매출 && o.원가 == null).reduce((a, o) => a + o.매출, 0) };
-    return { opts, lotSheet: lotInfo.sheet, lots, prev, hw, stock, carry, totalShip, byClass, P, P당월, P전월, H, Hl, Hu, 미확인 };
+    return { opts, lotSheet: lotInfo.sheet, lots, prev, hw, stock, carry, totalShip, byClass, internal, P, P당월, P전월, H, Hl, Hu, 미확인 };
   }
   return { run, readLots, T, N, RATIO, DEFAULT_RULES };
 })();
