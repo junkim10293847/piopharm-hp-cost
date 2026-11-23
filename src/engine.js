@@ -236,8 +236,17 @@ const Engine = (() => {
       const n = rows.get(key), share = n > 1 ? (cnt.get(key) ? Z(l.완료수량) / cnt.get(key) : 1 / n) : 1;
       const shipQty = sh.reduce((a, x) => a + x.qty, 0) * share, shipW = sh.reduce((a, x) => a + x.w, 0) * share, shipAmt = sh.reduce((a, x) => a + x.amt, 0) * share;
       // '전월' 구역에 적힌 로트는 당월 단가대장을 쓰지 않음 (생산월 단가대장으로)
-      const cur = l.구분 === '전월' ? null : led(l.제품코드, opts.month);
-      const pm = cur ? null : prodMonth({ ...l, key }, opts.history);
+      let cur = l.구분 === '전월' ? null : led(l.제품코드, opts.month);
+      let pm = cur ? null : prodMonth({ ...l, key }, opts.history), 이전월출하 = null;
+      // 로트목록에 있지만 이번 달 단가대장에 그 제품 투입액이 없고 이번 달에 출하됐으면 → 이전 달 생산분의 이번 달 매출
+      // (가장 가까운 이전 달 단가대장에 투입액이 있을 때만, 최대 3개월 전까지)
+      if (l.구분 !== '전월' && !cur && shipQty > 0) {
+        for (let k = 1; k <= 3; k++) {
+          const m = ((opts.month - k - 1 + 12) % 12) + 1, c = led(l.제품코드, m);
+          if (c && c.제조금액) { pm = { m, by: `이번 달 단가대장에 없고 ${m}월 단가대장에 투입액 있음 → ${m}월 생산분의 ${opts.month}월 매출` }; 이전월출하 = m; break; }
+        }
+      }
+      if (이전월출하) l = { ...l, 구분: '전월', 이전월출하 };
       const prev = pm && pm.m !== opts.month ? led(l.제품코드, pm.m) : null;
       return { ...l, key, lotKey, 출하로트: by, 출하나눔: n > 1 ? share : null, K, sh, shipQty, shipW, shipAmt, cur, prev, 생산월: pm,
         wo: Wo.filter(x => x.key === key || x.key === lotKey), od: Od.filter(x => x.key === key || x.key === lotKey), odAll: OdAll.filter(x => x.key === key || x.key === lotKey),
@@ -539,7 +548,7 @@ const Engine = (() => {
     const lotsAll = calcLots(lotInfo.lots, src, opts);
     // 로트목록의 '전월' 구역에 적힌 로트는 전월 생산 출하로 모음
     const lots = lotsAll.filter(o => o.구분 !== '전월');
-    const listedPrev = lotsAll.filter(o => o.구분 === '전월').map(o => ({ ...o, _fromList: true, 구분: '전월 생산', 근거: '로트목록 전월 구역', 지시일자: o.wo.map(w => T(w['지시일자'])).filter(Boolean).join(', '), 고객사: o.고객사 }));
+    const listedPrev = lotsAll.filter(o => o.구분 === '전월').map(o => ({ ...o, _fromList: true, 구분: '전월 생산', 근거: o.이전월출하 ? `로트목록(${o.이전월출하}월 단가대장 투입액)` : '로트목록 전월 구역', 지시일자: o.wo.map(w => T(w['지시일자'])).filter(Boolean).join(', '), 고객사: o.고객사 }));
     const prev = [...listedPrev, ...calcPrev(lotsAll, src, opts)].sort((a, b) => Z(b.매출) - Z(a.매출));
     const taken = new Set([...lotsAll.filter(o => o.K === 1).map(o => o.key), ...prev.map(o => o.key)]);
     // 평택비율 < 1 로트의 화성분은 lots 쪽에서 따로 계산하므로, 화성 품목에서는 K가 있는 로트 전체를 제외
